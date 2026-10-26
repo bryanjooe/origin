@@ -28,6 +28,7 @@ export interface SystemState {
   simulation_time?: string | number
   simulation_time_seconds?: number
   sim_time_seconds?: number
+  next_tick?: number
   anomaly_status?: string
   anomaly?: { status?: string; score?: number; source?: string }
   model_status?: string
@@ -78,6 +79,12 @@ export interface TelemetryPoint {
   battery_power_kw?: number
   anomaly_score?: number
   [key: string]: string | number | boolean | null | undefined
+}
+
+export interface TelemetryBatch {
+  run_id: string
+  items: TelemetryPoint[]
+  next_after_tick: number
 }
 
 export interface EventRecord {
@@ -200,6 +207,8 @@ export interface ModelMetrics {
     detection_delay_seconds?: number | null
   }
   by_severity?: Array<{ severity: string; accuracy?: number | null; recall?: number | null }>
+  evaluation_status?: string
+  false_positive_rate?: number
 }
 
 export interface SimulationActionResponse {

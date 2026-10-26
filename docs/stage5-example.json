@@ -1,0 +1,387 @@
+{
+  "scope": "Measured local HTTP workflow; not an incident-accuracy benchmark",
+  "health": {
+    "status": "ok",
+    "database": "available",
+    "models": {
+      "anomaly": {
+        "available": true,
+        "error": null
+      },
+      "source": {
+        "available": true,
+        "error": null
+      }
+    },
+    "runtime_error": null,
+    "transport": "REST polling",
+    "suggested_poll_interval_ms": 1000
+  },
+  "run_id": "d093aea09e47451f99e0edeb0f778a19",
+  "ticks": 140,
+  "incident_summaries": [
+    {
+      "id": "d093aea09e47451f99e0edeb0f778a19:incident-0001",
+      "status": "resolved",
+      "detection_tick": 32,
+      "representative_tick": 61,
+      "resolved_at_tick": 84,
+      "diagnosis": {
+        "source": "inverter",
+        "model_predicted_source": "inverter",
+        "confidence": 0.9833693309108223,
+        "source_model_available": true,
+        "confidence_kind": "uncalibrated_random_forest_probability",
+        "candidates": [
+          {
+            "source": "inverter",
+            "label": "Actuator/Inverter",
+            "confidence": 0.9833693309108223
+          },
+          {
+            "source": "sensor",
+            "label": "Sensor",
+            "confidence": 0.015620605770364625
+          },
+          {
+            "source": "normal",
+            "label": "Normal",
+            "confidence": 0.0010100633188131422
+          },
+          {
+            "source": "communication",
+            "label": "Communication",
+            "confidence": 0.0
+          },
+          {
+            "source": "controller",
+            "label": "Controller",
+            "confidence": 0.0
+          },
+          {
+            "source": "firmware",
+            "label": "Firmware/Configuration",
+            "confidence": 0.0
+          }
+        ],
+        "reasons": []
+      }
+    }
+  ],
+  "suspected_edges": [
+    [
+      {
+        "source": "inverter",
+        "target": "delivered",
+        "evidence_ids": [
+          "t80:unmet_demand"
+        ]
+      }
+    ]
+  ],
+  "before_correction": {
+    "run_id": "d093aea09e47451f99e0edeb0f778a19",
+    "comparison": {
+      "baseline": {
+        "solar_generated_kwh": 10.751570416653362,
+        "renewable_delivered_kwh": 7.649756519485373,
+        "delivered_kwh": 7.649756519485373,
+        "demand_kwh": 7.715121177204322,
+        "unmet_demand_kwh": 0.06536465771895028,
+        "unused_dc_kwh": 0.0711886559943533,
+        "solar_curtailed_kwh": 0.0711886559943533,
+        "inverter_loss_kwh": 0.31873985497855756,
+        "battery_loss_kwh": 0.1355942693097542,
+        "excess_ac_kwh": 0.0,
+        "charge_input_kwh": 2.71188538619508,
+        "charge_stored_kwh": 2.576291116885326,
+        "discharge_output_kwh": 0.0,
+        "discharge_withdrawn_kwh": 0.0,
+        "renewable_unused_dc_kwh": 0.0711886559943533,
+        "renewable_inverter_loss_kwh": 0.31873985497855756,
+        "renewable_battery_loss_kwh": 0.1355942693097542,
+        "renewable_excess_ac_kwh": 0.0,
+        "ticks": 80,
+        "battery_energy_kwh": 16.976291116885328,
+        "renewable_stored_kwh": 2.576291116885326,
+        "initial_unknown_battery_energy_kwh": 14.4,
+        "battery_energy_change_kwh": 2.5762911168853275,
+        "energy_balance_residual_kwh": -3.9968028886505635e-15,
+        "renewable_energy_balance_residual_kwh": -2.6645352591003757e-15,
+        "solar_capture_fraction": 0.9933787667070396,
+        "renewable_delivery_fraction_of_generated": 0.7115013177643783,
+        "observed_charge_efficiency": 0.9500000000000001,
+        "observed_discharge_efficiency": null,
+        "configured_round_trip_efficiency": 0.9025,
+        "demand_served_fraction": 0.9915277211831642
+      },
+      "faulty_uncorrected": {
+        "solar_generated_kwh": 10.751570416653362,
+        "renewable_delivered_kwh": 3.8616369849670633,
+        "delivered_kwh": 3.8616369849670633,
+        "demand_kwh": 7.715121177204322,
+        "unmet_demand_kwh": 3.8534841922372576,
+        "unused_dc_kwh": 4.017146504450922,
+        "solar_curtailed_kwh": 4.017146504450922,
+        "inverter_loss_kwh": 0.16090154104029444,
+        "battery_loss_kwh": 0.1355942693097542,
+        "excess_ac_kwh": 0.0,
+        "charge_input_kwh": 2.71188538619508,
+        "charge_stored_kwh": 2.576291116885326,
+        "discharge_output_kwh": 0.0,
+        "discharge_withdrawn_kwh": 0.0,
+        "renewable_unused_dc_kwh": 4.017146504450922,
+        "renewable_inverter_loss_kwh": 0.16090154104029444,
+        "renewable_battery_loss_kwh": 0.1355942693097542,
+        "renewable_excess_ac_kwh": 0.0,
+        "ticks": 80,
+        "battery_energy_kwh": 16.976291116885328,
+        "renewable_stored_kwh": 2.576291116885326,
+        "initial_unknown_battery_energy_kwh": 14.4,
+        "battery_energy_change_kwh": 2.5762911168853275,
+        "energy_balance_residual_kwh": 0.0,
+        "renewable_energy_balance_residual_kwh": 1.3322676295501878e-15,
+        "solar_capture_fraction": 0.626366535419917,
+        "renewable_delivery_fraction_of_generated": 0.3591695757287403,
+        "observed_charge_efficiency": 0.9500000000000001,
+        "observed_discharge_efficiency": null,
+        "configured_round_trip_efficiency": 0.9025,
+        "demand_served_fraction": 0.5005283645287318
+      },
+      "operated": {
+        "solar_generated_kwh": 10.751570416653362,
+        "renewable_delivered_kwh": 3.8616369849670633,
+        "delivered_kwh": 3.8616369849670633,
+        "demand_kwh": 7.715121177204322,
+        "unmet_demand_kwh": 3.8534841922372576,
+        "unused_dc_kwh": 4.017146504450922,
+        "solar_curtailed_kwh": 4.017146504450922,
+        "inverter_loss_kwh": 0.16090154104029444,
+        "battery_loss_kwh": 0.1355942693097542,
+        "excess_ac_kwh": 0.0,
+        "charge_input_kwh": 2.71188538619508,
+        "charge_stored_kwh": 2.576291116885326,
+        "discharge_output_kwh": 0.0,
+        "discharge_withdrawn_kwh": 0.0,
+        "renewable_unused_dc_kwh": 4.017146504450922,
+        "renewable_inverter_loss_kwh": 0.16090154104029444,
+        "renewable_battery_loss_kwh": 0.1355942693097542,
+        "renewable_excess_ac_kwh": 0.0,
+        "ticks": 80,
+        "battery_energy_kwh": 16.976291116885328,
+        "renewable_stored_kwh": 2.576291116885326,
+        "initial_unknown_battery_energy_kwh": 14.4,
+        "battery_energy_change_kwh": 2.5762911168853275,
+        "energy_balance_residual_kwh": 0.0,
+        "renewable_energy_balance_residual_kwh": 1.3322676295501878e-15,
+        "solar_capture_fraction": 0.626366535419917,
+        "renewable_delivery_fraction_of_generated": 0.3591695757287403,
+        "observed_charge_efficiency": 0.9500000000000001,
+        "observed_discharge_efficiency": null,
+        "configured_round_trip_efficiency": 0.9025,
+        "demand_served_fraction": 0.5005283645287318
+      }
+    },
+    "estimated_fault_delivery_loss_kwh": 3.7881195345183096,
+    "signed_baseline_minus_faulty_delivery_kwh": 3.7881195345183096,
+    "estimated_correction_delivery_gain_kwh": 0.0,
+    "correction_ticks": [],
+    "assumptions": [
+      "Paired seeded simulations have identical weather/demand and equal horizons",
+      "Initial battery energy has unknown provenance and is not counted as renewable",
+      "Stored renewable/unknown energy mixes proportionally; charging uses solar only",
+      "Unused DC can include wasted battery discharge; solar curtailment is allocated proportionally",
+      "Loss/gain comparisons are simulated counterfactual estimates, not measured causal effects",
+      "Efficiencies are energy ratios; round-trip figure is the configured product, not a measured cycle",
+      "No emissions factor is configured; no carbon savings are claimed"
+    ]
+  },
+  "sustainability": {
+    "run_id": "d093aea09e47451f99e0edeb0f778a19",
+    "comparison": {
+      "baseline": {
+        "solar_generated_kwh": 18.700065238433325,
+        "renewable_delivered_kwh": 13.262121267233214,
+        "delivered_kwh": 13.262121267233214,
+        "demand_kwh": 13.366204923990523,
+        "unmet_demand_kwh": 0.10408365675731693,
+        "unused_dc_kwh": 0.12737051195391652,
+        "solar_curtailed_kwh": 0.12737051195391652,
+        "inverter_loss_kwh": 0.5525883861347177,
+        "battery_loss_kwh": 0.2378992536555738,
+        "excess_ac_kwh": 0.0,
+        "charge_input_kwh": 4.757985073111472,
+        "charge_stored_kwh": 4.520085819455899,
+        "discharge_output_kwh": 0.0,
+        "discharge_withdrawn_kwh": 0.0,
+        "renewable_unused_dc_kwh": 0.12737051195391652,
+        "renewable_inverter_loss_kwh": 0.5525883861347177,
+        "renewable_battery_loss_kwh": 0.2378992536555738,
+        "renewable_excess_ac_kwh": 0.0,
+        "ticks": 140,
+        "battery_energy_kwh": 18.920085819455892,
+        "renewable_stored_kwh": 4.520085819455899,
+        "initial_unknown_battery_energy_kwh": 14.4,
+        "battery_energy_change_kwh": 4.5200858194558915,
+        "energy_balance_residual_kwh": 1.1546319456101628e-14,
+        "renewable_energy_balance_residual_kwh": 4.440892098500626e-15,
+        "solar_capture_fraction": 0.9931887664385182,
+        "renewable_delivery_fraction_of_generated": 0.7092018716585131,
+        "observed_charge_efficiency": 0.9500000000000001,
+        "observed_discharge_efficiency": null,
+        "configured_round_trip_efficiency": 0.9025,
+        "demand_served_fraction": 0.9922129237618905
+      },
+      "faulty_uncorrected": {
+        "solar_generated_kwh": 18.700065238433325,
+        "renewable_delivered_kwh": 4.991853734324303,
+        "delivered_kwh": 4.991853734324303,
+        "demand_kwh": 13.366204923990523,
+        "unmet_demand_kwh": 8.374351189666221,
+        "unused_dc_kwh": 8.742232525400691,
+        "solar_curtailed_kwh": 8.742232525400691,
+        "inverter_loss_kwh": 0.20799390559684616,
+        "battery_loss_kwh": 0.2378992536555738,
+        "excess_ac_kwh": 0.0,
+        "charge_input_kwh": 4.757985073111472,
+        "charge_stored_kwh": 4.520085819455899,
+        "discharge_output_kwh": 0.0,
+        "discharge_withdrawn_kwh": 0.0,
+        "renewable_unused_dc_kwh": 8.742232525400691,
+        "renewable_inverter_loss_kwh": 0.20799390559684616,
+        "renewable_battery_loss_kwh": 0.2378992536555738,
+        "renewable_excess_ac_kwh": 0.0,
+        "ticks": 140,
+        "battery_energy_kwh": 18.920085819455892,
+        "renewable_stored_kwh": 4.520085819455899,
+        "initial_unknown_battery_energy_kwh": 14.4,
+        "battery_energy_change_kwh": 4.5200858194558915,
+        "energy_balance_residual_kwh": 2.042810365310288e-14,
+        "renewable_energy_balance_residual_kwh": 1.3322676295501878e-14,
+        "solar_capture_fraction": 0.5325025654224345,
+        "renewable_delivery_fraction_of_generated": 0.26694311868307236,
+        "observed_charge_efficiency": 0.9500000000000001,
+        "observed_discharge_efficiency": null,
+        "configured_round_trip_efficiency": 0.9025,
+        "demand_served_fraction": 0.37346829281096855
+      },
+      "operated": {
+        "solar_generated_kwh": 18.700065238433325,
+        "renewable_delivered_kwh": 9.474001732714898,
+        "delivered_kwh": 9.474001732714898,
+        "demand_kwh": 13.366204923990523,
+        "unmet_demand_kwh": 3.892203191275623,
+        "unused_dc_kwh": 4.073328360410486,
+        "solar_curtailed_kwh": 4.073328360410486,
+        "inverter_loss_kwh": 0.3947500721964546,
+        "battery_loss_kwh": 0.2378992536555738,
+        "excess_ac_kwh": 0.0,
+        "charge_input_kwh": 4.757985073111472,
+        "charge_stored_kwh": 4.520085819455899,
+        "discharge_output_kwh": 0.0,
+        "discharge_withdrawn_kwh": 0.0,
+        "renewable_unused_dc_kwh": 4.073328360410486,
+        "renewable_inverter_loss_kwh": 0.3947500721964546,
+        "renewable_battery_loss_kwh": 0.2378992536555738,
+        "renewable_excess_ac_kwh": 0.0,
+        "ticks": 140,
+        "battery_energy_kwh": 18.920085819455892,
+        "renewable_stored_kwh": 4.520085819455899,
+        "initial_unknown_battery_energy_kwh": 14.4,
+        "battery_energy_change_kwh": 4.5200858194558915,
+        "energy_balance_residual_kwh": 2.1316282072803006e-14,
+        "renewable_energy_balance_residual_kwh": 1.4210854715202004e-14,
+        "solar_capture_fraction": 0.782175713909341,
+        "renewable_delivery_fraction_of_generated": 0.5066293412305026,
+        "observed_charge_efficiency": 0.9500000000000001,
+        "observed_discharge_efficiency": null,
+        "configured_round_trip_efficiency": 0.9025,
+        "demand_served_fraction": 0.7088026696127
+      }
+    },
+    "estimated_fault_delivery_loss_kwh": 8.27026753290891,
+    "signed_baseline_minus_faulty_delivery_kwh": 8.27026753290891,
+    "estimated_correction_delivery_gain_kwh": 4.482147998390595,
+    "correction_ticks": [
+      80
+    ],
+    "assumptions": [
+      "Paired seeded simulations have identical weather/demand and equal horizons",
+      "Initial battery energy has unknown provenance and is not counted as renewable",
+      "Stored renewable/unknown energy mixes proportionally; charging uses solar only",
+      "Unused DC can include wasted battery discharge; solar curtailment is allocated proportionally",
+      "Loss/gain comparisons are simulated counterfactual estimates, not measured causal effects",
+      "Efficiencies are energy ratios; round-trip figure is the configured product, not a measured cycle",
+      "No emissions factor is configured; no carbon savings are claimed"
+    ]
+  },
+  "csv_export_bytes": 243136,
+  "evaluation": {
+    "id": "ed17a9ebc7a5488fa0609b65d3ca5001",
+    "status": "complete",
+    "profile": "quick"
+  },
+  "evaluation_summary": {
+    "anomaly": {
+      "profile": "quick",
+      "provenance": "server recomputed held-out scenarios",
+      "normal_rows": 360,
+      "fault_rows": 600,
+      "performance": {
+        "ml": {
+          "true_positive": 127,
+          "false_positive": 0,
+          "true_negative": 360,
+          "false_negative": 473,
+          "precision": 1.0,
+          "recall": 0.21166666666666667,
+          "f1": 0.3493810178817056,
+          "false_positive_rate": 0.0,
+          "detected_fault_runs": 2,
+          "total_fault_runs": 5,
+          "mean_detection_delay_seconds": 60.0,
+          "delay_denominator": "detected runs only; missed runs have null delay",
+          "roc_auc": 0.8741921296296296,
+          "average_precision": 0.9280498467688149
+        },
+        "rules": {
+          "true_positive": 597,
+          "false_positive": 0,
+          "true_negative": 360,
+          "false_negative": 3,
+          "precision": 1.0,
+          "recall": 0.995,
+          "f1": 0.9974937343358395,
+          "false_positive_rate": 0.0,
+          "detected_fault_runs": 5,
+          "total_fault_runs": 5,
+          "mean_detection_delay_seconds": 36.0,
+          "delay_denominator": "detected runs only; missed runs have null delay"
+        },
+        "combined": {
+          "true_positive": 598,
+          "false_positive": 0,
+          "true_negative": 360,
+          "false_negative": 2,
+          "precision": 1.0,
+          "recall": 0.9966666666666667,
+          "f1": 0.998330550918197,
+          "false_positive_rate": 0.0,
+          "detected_fault_runs": 5,
+          "total_fault_runs": 5,
+          "mean_detection_delay_seconds": 24.0,
+          "delay_denominator": "detected runs only; missed runs have null delay"
+        }
+      }
+    },
+    "source": {
+      "profile": "quick",
+      "provenance": "server recomputed held-out scenarios",
+      "rows": 6999,
+      "run_count": 50,
+      "accuracy_including_unknown": 0.8405486498071153,
+      "coverage": 0.901843120445778,
+      "accepted_accuracy": 0.9320342205323194
+    }
+  }
+}

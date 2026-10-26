@@ -1,1 +1,1 @@
-"""TraceX GreenGrid: software-only microgrid simulation."""
+"""Origin: software-only renewable microgrid simulation."""

@@ -110,7 +110,7 @@ Fault schedules and severity live in `FaultEngine`, exported only as scenario
 metadata. Telemetry exposes measurements, physical references, configuration
 integrity, message metadata and controller logs, but not fault labels. Physical
 references are simulation oracle values; later model design must explicitly decide
-which independent measurements could supply equivalent residuals. Stage 1 has no
+which independent measurements could supply equivalent residuals. Stage 1 itself has no
 feature builder, labels for training, classifier, anomaly scores, or fabricated
 component health predictions.
 
@@ -127,6 +127,8 @@ conversion losses, interval energy conservation across all fault modes, packet
 timestamp order, scheduled faults, recovery, correction, reset, seeded replay,
 ground-truth separation, topology, validation errors and CLI exports.
 
-Later stages will add normal-baseline ML, scenario-level held-out classification,
-evidence-grounded diagnosis, API synchronization, persistence, dashboard, and
-sustainability comparisons. None is required to run this Stage 1 simulator.
+Stage 2 now adds normal-baseline ML and held-out anomaly evaluation; see
+[detection methodology](detection.md). Remaining stages will add scenario-level
+held-out source classification, evidence-grounded diagnosis, API synchronization,
+persistence, dashboard and sustainability comparisons. None is required to run the
+Stage 1 simulator.

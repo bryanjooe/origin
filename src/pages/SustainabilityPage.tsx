@@ -10,7 +10,7 @@ const fields = [
   ['curtailed_kwh', 'Curtailed energy', 'kWh', false],
   ['demand_served_pct', 'Demand served', '%', false],
   ['unmet_demand_kwh', 'Unmet demand', 'kWh', false],
-  ['battery_efficiency_pct', 'Battery efficiency', '%', true],
+  ['battery_efficiency_pct', 'Battery efficiency', '%', false],
   ['estimated_loss_kwh', 'Estimated loss', 'kWh', true],
 ] as const
 

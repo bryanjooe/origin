@@ -1,0 +1,1521 @@
+{
+  "scope": "Compact measured Stage 4 demo reports; not an accuracy benchmark",
+  "cases": [
+    {
+      "demo": "inverter",
+      "full_local_report": "outputs\\investigated-inverter\\incidents.json",
+      "incidents": [
+        {
+          "id": "incident-0001",
+          "status": "resolved",
+          "first_observed_tick": 30,
+          "detection_tick": 32,
+          "detection_time_seconds": 1920.0,
+          "confirmation_delay_seconds": 120.0,
+          "severity": "critical",
+          "peak_anomaly_score": 0.6949659026567138,
+          "representative_tick": 61,
+          "last_alert_tick": 109,
+          "resolved_at_tick": 114,
+          "recovery_ticks": 5,
+          "diagnosis": {
+            "source": "inverter",
+            "model_predicted_source": "inverter",
+            "confidence": 0.9833693309108223,
+            "source_model_available": true,
+            "confidence_kind": "uncalibrated_random_forest_probability",
+            "candidates": [
+              {
+                "source": "inverter",
+                "label": "Actuator/Inverter",
+                "confidence": 0.9833693309108223
+              },
+              {
+                "source": "sensor",
+                "label": "Sensor",
+                "confidence": 0.015620605770364625
+              },
+              {
+                "source": "normal",
+                "label": "Normal",
+                "confidence": 0.0010100633188131422
+              },
+              {
+                "source": "communication",
+                "label": "Communication",
+                "confidence": 0.0
+              },
+              {
+                "source": "controller",
+                "label": "Controller",
+                "confidence": 0.0
+              },
+              {
+                "source": "firmware",
+                "label": "Firmware/Configuration",
+                "confidence": 0.0
+              }
+            ],
+            "reasons": []
+          },
+          "latest_diagnosis": {
+            "source": "inverter",
+            "model_predicted_source": "inverter",
+            "confidence": 0.9991445499272399,
+            "source_model_available": true,
+            "confidence_kind": "uncalibrated_random_forest_probability",
+            "candidates": [
+              {
+                "source": "inverter",
+                "label": "Actuator/Inverter",
+                "confidence": 0.9991445499272399
+              },
+              {
+                "source": "sensor",
+                "label": "Sensor",
+                "confidence": 0.0008554500727600306
+              },
+              {
+                "source": "communication",
+                "label": "Communication",
+                "confidence": 0.0
+              },
+              {
+                "source": "controller",
+                "label": "Controller",
+                "confidence": 0.0
+              },
+              {
+                "source": "firmware",
+                "label": "Firmware/Configuration",
+                "confidence": 0.0
+              },
+              {
+                "source": "normal",
+                "label": "Normal",
+                "confidence": 0.0
+              }
+            ],
+            "reasons": []
+          },
+          "as_of_tick": 114,
+          "timeline": [
+            {
+              "tick": 30,
+              "elapsed_seconds": 1800.0,
+              "event": "symptom_observed",
+              "signal": "inverter_output_residual",
+              "evidence_id": "t30:inverter_output_residual",
+              "nodes": [
+                "inverter"
+              ]
+            },
+            {
+              "tick": 30,
+              "elapsed_seconds": 1800.0,
+              "event": "symptom_observed",
+              "signal": "unmet_demand",
+              "evidence_id": "t30:unmet_demand",
+              "nodes": [
+                "delivered"
+              ]
+            },
+            {
+              "tick": 32,
+              "elapsed_seconds": 1920.0,
+              "event": "incident_confirmed",
+              "nodes": []
+            },
+            {
+              "tick": 114,
+              "elapsed_seconds": 6840.0,
+              "event": "alerts_cleared",
+              "nodes": []
+            }
+          ],
+          "explanation": {
+            "why_flagged": [
+              "Residual-rule checks exceeded their stated limits; these checks are separate from ML."
+            ],
+            "likely_source": "At representative alert tick 61, the classifier hypothesis is Actuator/Inverter with score 0.9834 (uncalibrated classifier probability).",
+            "deviations": [
+              {
+                "evidence_id": "t109:inverter_output_residual",
+                "text": "The inverter requests 5.566 kW and produces 1.113 kW; the availability-adjusted residual is 4.452 kW (limit 0.580 kW)."
+              },
+              {
+                "evidence_id": "t111:unmet_demand",
+                "text": "Demand is 5.717 kW and delivery 5.545 kW, leaving 0.172 kW unserved. This can also occur during normal scarcity."
+              }
+            ],
+            "alternative_sources": [
+              {
+                "source": "sensor",
+                "label": "Sensor",
+                "confidence": 0.015620605770364625
+              },
+              {
+                "source": "normal",
+                "label": "Normal",
+                "confidence": 0.0010100633188131422
+              }
+            ],
+            "diagnostic_checks": [
+              "Compare requested AC output, available DC bus power and independent AC metering before restoring the simulated inverter.",
+              "Compare local solar/SOC readings with the irradiance reference and integrated battery-energy estimate."
+            ],
+            "observed_symptom_sequence": [
+              {
+                "tick": 30,
+                "elapsed_seconds": 1800.0,
+                "event": "symptom_observed",
+                "signal": "inverter_output_residual",
+                "evidence_id": "t30:inverter_output_residual",
+                "nodes": [
+                  "inverter"
+                ]
+              },
+              {
+                "tick": 30,
+                "elapsed_seconds": 1800.0,
+                "event": "symptom_observed",
+                "signal": "unmet_demand",
+                "evidence_id": "t30:unmet_demand",
+                "nodes": [
+                  "delivered"
+                ]
+              }
+            ],
+            "potentially_affected_components": [
+              "delivered"
+            ],
+            "recovery": "Alerts stayed absent for 5 ticks; the incident is resolved as of tick 114. This does not prove a corrective action caused recovery.",
+            "uncertainty": [
+              "The source is a model hypothesis, not a proven root cause",
+              "Structural dependencies and temporal ordering do not establish causation",
+              "Unserved demand may reflect normal resource scarcity",
+              "Residual evidence is not feature importance or candidate-specific causal attribution"
+            ]
+          },
+          "total_evidence_records": 161,
+          "latest_evidence_per_signal": [
+            {
+              "id": "t109:inverter_output_residual",
+              "tick": 109,
+              "elapsed_seconds": 6540.0,
+              "signal": "inverter_output_residual",
+              "nodes": [
+                "inverter"
+              ],
+              "value": 4.452470721417901,
+              "threshold": 0.58,
+              "unit": "kW",
+              "kind": "residual_observation",
+              "sample": {
+                "tick": 109,
+                "elapsed_seconds": 6540.0,
+                "expected_solar_kw": 8.216142208984134,
+                "measured_solar_kw": 7.94331939231019,
+                "measured_soc_pct": 74.57529637042724,
+                "battery_power_kw": -2.1458314737972985,
+                "demand_kw": 5.565588401772376,
+                "delivered_kw": 1.113117680354475,
+                "unmet_demand_kw": 4.452470721417901,
+                "controller_command_kw": -2.1458314737972985,
+                "inverter_requested_kw": 5.565588401772376,
+                "inverter_actual_kw": 1.113117680354475,
+                "message_age_seconds": 0.0,
+                "message_source_tick": 109,
+                "applied_reserve_soc_pct": 10.0,
+                "applied_discharge_limit_kw": 5.0,
+                "config_integrity_ok": true,
+                "controller_inputs": {
+                  "source_tick": 109,
+                  "solar_kw": 7.94331939231019,
+                  "soc_pct": 74.57529637042724,
+                  "demand_kw": 5.565588401772376
+                }
+              }
+            },
+            {
+              "id": "t111:unmet_demand",
+              "tick": 111,
+              "elapsed_seconds": 6660.0,
+              "signal": "unmet_demand",
+              "nodes": [
+                "delivered"
+              ],
+              "value": 0.1715454496866684,
+              "threshold": 0.1,
+              "unit": "kW",
+              "kind": "observed_impact",
+              "sample": {
+                "tick": 111,
+                "elapsed_seconds": 6660.0,
+                "expected_solar_kw": 8.430430766192384,
+                "measured_solar_kw": 8.60912394294933,
+                "measured_soc_pct": 74.82137100273592,
+                "battery_power_kw": -2.654133253390282,
+                "demand_kw": 5.716791061976686,
+                "delivered_kw": 5.545245612290017,
+                "unmet_demand_kw": 0.1715454496866684,
+                "controller_command_kw": -2.654133253390282,
+                "inverter_requested_kw": 5.716791061976686,
+                "inverter_actual_kw": 5.545245612290017,
+                "message_age_seconds": 0.0,
+                "message_source_tick": 111,
+                "applied_reserve_soc_pct": 10.0,
+                "applied_discharge_limit_kw": 5.0,
+                "config_integrity_ok": true,
+                "controller_inputs": {
+                  "source_tick": 111,
+                  "solar_kw": 8.60912394294933,
+                  "soc_pct": 74.82137100273592,
+                  "demand_kw": 5.716791061976686
+                }
+              }
+            }
+          ],
+          "graph": {
+            "nodes": [
+              {
+                "id": "irradiance",
+                "label": "Irradiance",
+                "candidate_source": false,
+                "observed_symptom": false,
+                "potentially_affected": false,
+                "evidence_ids": [],
+                "telemetry": [
+                  {
+                    "tick": 114,
+                    "elapsed_seconds": 6840.0,
+                    "expected_solar_kw": 8.034908109436985
+                  }
+                ],
+                "events": [],
+                "full_telemetry_row_count": 85
+              },
+              {
+                "id": "solar",
+                "label": "Solar",
+                "candidate_source": false,
+                "observed_symptom": false,
+                "potentially_affected": false,
+                "evidence_ids": [],
+                "telemetry": [
+                  {
+                    "tick": 114,
+                    "elapsed_seconds": 6840.0,
+                    "expected_solar_kw": 8.034908109436985
+                  }
+                ],
+                "events": [],
+                "full_telemetry_row_count": 85
+              },
+              {
+                "id": "solar_sensor",
+                "label": "Solar Sensor",
+                "candidate_source": false,
+                "observed_symptom": false,
+                "potentially_affected": false,
+                "evidence_ids": [],
+                "telemetry": [
+                  {
+                    "tick": 114,
+                    "elapsed_seconds": 6840.0,
+                    "measured_solar_kw": 8.039193948434091,
+                    "expected_solar_kw": 8.034908109436985
+                  }
+                ],
+                "events": [],
+                "full_telemetry_row_count": 85
+              },
+              {
+                "id": "battery",
+                "label": "Battery",
+                "candidate_source": false,
+                "observed_symptom": false,
+                "potentially_affected": false,
+                "evidence_ids": [],
+                "telemetry": [
+                  {
+                    "tick": 114,
+                    "elapsed_seconds": 6840.0,
+                    "battery_power_kw": -2.0112028065695897
+                  }
+                ],
+                "events": [],
+                "full_telemetry_row_count": 85
+              },
+              {
+                "id": "battery_sensor",
+                "label": "Battery Sensor",
+                "candidate_source": false,
+                "observed_symptom": false,
+                "potentially_affected": false,
+                "evidence_ids": [],
+                "telemetry": [
+                  {
+                    "tick": 114,
+                    "elapsed_seconds": 6840.0,
+                    "measured_soc_pct": 75.32032300030119
+                  }
+                ],
+                "events": [],
+                "full_telemetry_row_count": 85
+              },
+              {
+                "id": "demand",
+                "label": "Demand",
+                "candidate_source": false,
+                "observed_symptom": false,
+                "potentially_affected": false,
+                "evidence_ids": [],
+                "telemetry": [
+                  {
+                    "tick": 114,
+                    "elapsed_seconds": 6840.0,
+                    "demand_kw": 5.786871496189922
+                  }
+                ],
+                "events": [],
+                "full_telemetry_row_count": 85
+              },
+              {
+                "id": "demand_sensor",
+                "label": "Demand Sensor",
+                "candidate_source": false,
+                "observed_symptom": false,
+                "potentially_affected": false,
+                "evidence_ids": [],
+                "telemetry": [
+                  {
+                    "tick": 114,
+                    "elapsed_seconds": 6840.0,
+                    "demand_kw": 5.786871496189922
+                  }
+                ],
+                "events": [],
+                "full_telemetry_row_count": 85
+              },
+              {
+                "id": "communication",
+                "label": "Communication",
+                "candidate_source": false,
+                "observed_symptom": false,
+                "potentially_affected": false,
+                "evidence_ids": [],
+                "telemetry": [
+                  {
+                    "tick": 114,
+                    "elapsed_seconds": 6840.0,
+                    "message_age_seconds": 0.0,
+                    "message_source_tick": 114,
+                    "controller_inputs": {
+                      "source_tick": 114,
+                      "solar_kw": 8.039193948434091,
+                      "soc_pct": 75.32032300030119,
+                      "demand_kw": 5.786871496189922
+                    }
+                  }
+                ],
+                "events": [],
+                "full_telemetry_row_count": 85
+              },
+              {
+                "id": "controller",
+                "label": "Controller",
+                "candidate_source": false,
+                "observed_symptom": false,
+                "potentially_affected": false,
+                "evidence_ids": [],
+                "telemetry": [
+                  {
+                    "tick": 114,
+                    "elapsed_seconds": 6840.0,
+                    "controller_inputs": {
+                      "source_tick": 114,
+                      "solar_kw": 8.039193948434091,
+                      "soc_pct": 75.32032300030119,
+                      "demand_kw": 5.786871496189922
+                    },
+                    "controller_command_kw": -2.0112028065695897,
+                    "inverter_requested_kw": 5.786871496189922
+                  }
+                ],
+                "events": [],
+                "full_telemetry_row_count": 85
+              },
+              {
+                "id": "firmware",
+                "label": "Firmware",
+                "candidate_source": false,
+                "observed_symptom": false,
+                "potentially_affected": false,
+                "evidence_ids": [],
+                "telemetry": [
+                  {
+                    "tick": 114,
+                    "elapsed_seconds": 6840.0,
+                    "applied_reserve_soc_pct": 10.0,
+                    "applied_discharge_limit_kw": 5.0,
+                    "config_integrity_ok": true
+                  }
+                ],
+                "events": [],
+                "full_telemetry_row_count": 85
+              },
+              {
+                "id": "inverter",
+                "label": "Inverter",
+                "candidate_source": true,
+                "observed_symptom": true,
+                "potentially_affected": false,
+                "evidence_ids": [
+                  "t109:inverter_output_residual"
+                ],
+                "telemetry": [
+                  {
+                    "tick": 114,
+                    "elapsed_seconds": 6840.0,
+                    "inverter_requested_kw": 5.786871496189922,
+                    "inverter_actual_kw": 5.7827570907527
+                  }
+                ],
+                "events": [
+                  {
+                    "tick": 30,
+                    "elapsed_seconds": 1800.0,
+                    "event": "symptom_observed",
+                    "signal": "inverter_output_residual",
+                    "evidence_id": "t30:inverter_output_residual",
+                    "nodes": [
+                      "inverter"
+                    ]
+                  }
+                ],
+                "full_telemetry_row_count": 85
+              },
+              {
+                "id": "delivered",
+                "label": "Delivered",
+                "candidate_source": false,
+                "observed_symptom": true,
+                "potentially_affected": true,
+                "evidence_ids": [
+                  "t111:unmet_demand"
+                ],
+                "telemetry": [
+                  {
+                    "tick": 114,
+                    "elapsed_seconds": 6840.0,
+                    "demand_kw": 5.786871496189922,
+                    "delivered_kw": 5.7827570907527,
+                    "unmet_demand_kw": 0.0041144054372219685
+                  }
+                ],
+                "events": [
+                  {
+                    "tick": 30,
+                    "elapsed_seconds": 1800.0,
+                    "event": "symptom_observed",
+                    "signal": "unmet_demand",
+                    "evidence_id": "t30:unmet_demand",
+                    "nodes": [
+                      "delivered"
+                    ]
+                  }
+                ],
+                "full_telemetry_row_count": 85
+              }
+            ],
+            "edges": [
+              {
+                "source": "irradiance",
+                "target": "solar",
+                "kind": "physical",
+                "dependency": "Irradiance determines PV power",
+                "suspected": false,
+                "evidence_ids": [],
+                "evidence_scope": "known dependency only",
+                "uncertainty": null
+              },
+              {
+                "source": "solar",
+                "target": "solar_sensor",
+                "kind": "measurement",
+                "dependency": "Sensor measures PV output",
+                "suspected": false,
+                "evidence_ids": [],
+                "evidence_scope": "known dependency only",
+                "uncertainty": null
+              },
+              {
+                "source": "solar",
+                "target": "inverter",
+                "kind": "physical",
+                "dependency": "PV contributes to DC bus",
+                "suspected": false,
+                "evidence_ids": [],
+                "evidence_scope": "known dependency only",
+                "uncertainty": null
+              },
+              {
+                "source": "solar_sensor",
+                "target": "communication",
+                "kind": "information",
+                "dependency": "Timestamped PV reading",
+                "suspected": false,
+                "evidence_ids": [],
+                "evidence_scope": "known dependency only",
+                "uncertainty": null
+              },
+              {
+                "source": "battery",
+                "target": "battery_sensor",
+                "kind": "measurement",
+                "dependency": "Sensor reports stored energy",
+                "suspected": false,
+                "evidence_ids": [],
+                "evidence_scope": "known dependency only",
+                "uncertainty": null
+              },
+              {
+                "source": "battery",
+                "target": "inverter",
+                "kind": "physical",
+                "dependency": "Battery contributes to DC bus",
+                "suspected": false,
+                "evidence_ids": [],
+                "evidence_scope": "known dependency only",
+                "uncertainty": null
+              },
+              {
+                "source": "battery_sensor",
+                "target": "communication",
+                "kind": "information",
+                "dependency": "Timestamped SOC reading",
+                "suspected": false,
+                "evidence_ids": [],
+                "evidence_scope": "known dependency only",
+                "uncertainty": null
+              },
+              {
+                "source": "demand",
+                "target": "demand_sensor",
+                "kind": "measurement",
+                "dependency": "Meter measures AC demand",
+                "suspected": false,
+                "evidence_ids": [],
+                "evidence_scope": "known dependency only",
+                "uncertainty": null
+              },
+              {
+                "source": "demand_sensor",
+                "target": "communication",
+                "kind": "information",
+                "dependency": "Timestamped demand reading",
+                "suspected": false,
+                "evidence_ids": [],
+                "evidence_scope": "known dependency only",
+                "uncertainty": null
+              },
+              {
+                "source": "communication",
+                "target": "controller",
+                "kind": "information",
+                "dependency": "Latest received packet drives dispatch",
+                "suspected": false,
+                "evidence_ids": [],
+                "evidence_scope": "known dependency only",
+                "uncertainty": null
+              },
+              {
+                "source": "controller",
+                "target": "battery",
+                "kind": "command",
+                "dependency": "Constrained battery dispatch",
+                "suspected": false,
+                "evidence_ids": [],
+                "evidence_scope": "known dependency only",
+                "uncertainty": null
+              },
+              {
+                "source": "controller",
+                "target": "inverter",
+                "kind": "command",
+                "dependency": "Requested AC output",
+                "suspected": false,
+                "evidence_ids": [],
+                "evidence_scope": "known dependency only",
+                "uncertainty": null
+              },
+              {
+                "source": "firmware",
+                "target": "controller",
+                "kind": "configuration",
+                "dependency": "Reserve and dispatch limits",
+                "suspected": false,
+                "evidence_ids": [],
+                "evidence_scope": "known dependency only",
+                "uncertainty": null
+              },
+              {
+                "source": "inverter",
+                "target": "delivered",
+                "kind": "physical",
+                "dependency": "AC output serves demand",
+                "suspected": true,
+                "evidence_ids": [
+                  "t111:unmet_demand"
+                ],
+                "evidence_scope": "downstream symptom on a structural path",
+                "uncertainty": "Intermediate transmission is not directly established"
+              }
+            ],
+            "suspected_paths": [
+              {
+                "nodes": [
+                  "inverter",
+                  "delivered"
+                ],
+                "evidence_ids": [
+                  "t111:unmet_demand"
+                ],
+                "interpretation": "Known dependency path compatible with an observed symptom; not causal proof"
+              }
+            ],
+            "candidate_source_nodes": [
+              "inverter"
+            ],
+            "observed_nodes": [
+              "delivered",
+              "inverter"
+            ],
+            "potentially_affected_nodes": [
+              "delivered"
+            ],
+            "as_of_tick": 114,
+            "limitations": [
+              "Temporal ordering and dependency paths do not establish causation",
+              "Observed downstream symptoms may have competing explanations",
+              "One shortest structural path is shown per candidate and symptom; alternative routes may exist"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "demo": "sensor",
+      "full_local_report": "outputs\\investigated-sensor\\incidents.json",
+      "incidents": [
+        {
+          "id": "incident-0001",
+          "status": "resolved",
+          "first_observed_tick": 30,
+          "detection_tick": 30,
+          "detection_time_seconds": 1800.0,
+          "confirmation_delay_seconds": 0.0,
+          "severity": "critical",
+          "peak_anomaly_score": 0.729633012633617,
+          "representative_tick": 88,
+          "last_alert_tick": 111,
+          "resolved_at_tick": 116,
+          "recovery_ticks": 5,
+          "diagnosis": {
+            "source": "sensor",
+            "model_predicted_source": "sensor",
+            "confidence": 0.9994657559033746,
+            "source_model_available": true,
+            "confidence_kind": "uncalibrated_random_forest_probability",
+            "candidates": [
+              {
+                "source": "sensor",
+                "label": "Sensor",
+                "confidence": 0.9994657559033746
+              },
+              {
+                "source": "inverter",
+                "label": "Actuator/Inverter",
+                "confidence": 0.0005342440966253504
+              },
+              {
+                "source": "communication",
+                "label": "Communication",
+                "confidence": 0.0
+              },
+              {
+                "source": "controller",
+                "label": "Controller",
+                "confidence": 0.0
+              },
+              {
+                "source": "firmware",
+                "label": "Firmware/Configuration",
+                "confidence": 0.0
+              },
+              {
+                "source": "normal",
+                "label": "Normal",
+                "confidence": 0.0
+              }
+            ],
+            "reasons": []
+          },
+          "latest_diagnosis": {
+            "source": "sensor",
+            "model_predicted_source": "sensor",
+            "confidence": 0.8733354658795237,
+            "source_model_available": true,
+            "confidence_kind": "uncalibrated_random_forest_probability",
+            "candidates": [
+              {
+                "source": "sensor",
+                "label": "Sensor",
+                "confidence": 0.8733354658795237
+              },
+              {
+                "source": "normal",
+                "label": "Normal",
+                "confidence": 0.07822972320476254
+              },
+              {
+                "source": "communication",
+                "label": "Communication",
+                "confidence": 0.03298831606490011
+              },
+              {
+                "source": "inverter",
+                "label": "Actuator/Inverter",
+                "confidence": 0.008573488204280881
+              },
+              {
+                "source": "firmware",
+                "label": "Firmware/Configuration",
+                "confidence": 0.00395828241522745
+              },
+              {
+                "source": "controller",
+                "label": "Controller",
+                "confidence": 0.002914724231305447
+              }
+            ],
+            "reasons": []
+          },
+          "as_of_tick": 116,
+          "timeline": [
+            {
+              "tick": 30,
+              "elapsed_seconds": 1800.0,
+              "event": "incident_confirmed",
+              "nodes": []
+            },
+            {
+              "tick": 30,
+              "elapsed_seconds": 1800.0,
+              "event": "symptom_observed",
+              "signal": "solar_measurement_residual",
+              "evidence_id": "t30:solar_measurement_residual",
+              "nodes": [
+                "solar_sensor"
+              ]
+            },
+            {
+              "tick": 30,
+              "elapsed_seconds": 1800.0,
+              "event": "symptom_observed",
+              "signal": "inverter_output_residual",
+              "evidence_id": "t30:inverter_output_residual",
+              "nodes": [
+                "inverter"
+              ]
+            },
+            {
+              "tick": 30,
+              "elapsed_seconds": 1800.0,
+              "event": "symptom_observed",
+              "signal": "unmet_demand",
+              "evidence_id": "t30:unmet_demand",
+              "nodes": [
+                "delivered"
+              ]
+            },
+            {
+              "tick": 116,
+              "elapsed_seconds": 6960.0,
+              "event": "alerts_cleared",
+              "nodes": []
+            }
+          ],
+          "explanation": {
+            "why_flagged": [
+              "Isolation Forest score 0.72897 exceeded the warning threshold 0.60242 at detection.",
+              "Residual-rule checks exceeded their stated limits; these checks are separate from ML."
+            ],
+            "likely_source": "At representative alert tick 88, the classifier hypothesis is Sensor with score 0.9995 (uncalibrated classifier probability).",
+            "deviations": [
+              {
+                "evidence_id": "t109:solar_measurement_residual",
+                "text": "Solar sensor reports 17.543 kW versus 8.216 kW from the irradiance reference."
+              },
+              {
+                "evidence_id": "t109:inverter_output_residual",
+                "text": "The inverter requests 5.566 kW and produces 3.087 kW; the availability-adjusted residual is 2.478 kW (limit 0.580 kW)."
+              },
+              {
+                "evidence_id": "t111:unmet_demand",
+                "text": "Demand is 5.717 kW and delivery 5.545 kW, leaving 0.172 kW unserved. This can also occur during normal scarcity."
+              }
+            ],
+            "alternative_sources": [
+              {
+                "source": "inverter",
+                "label": "Actuator/Inverter",
+                "confidence": 0.0005342440966253504
+              },
+              {
+                "source": "communication",
+                "label": "Communication",
+                "confidence": 0.0
+              }
+            ],
+            "diagnostic_checks": [
+              "Compare local solar/SOC readings with the irradiance reference and integrated battery-energy estimate.",
+              "Compare requested AC output, available DC bus power and independent AC metering before restoring the simulated inverter.",
+              "Compare packet source timestamps and received values with current local measurements; replay normal simulated transport."
+            ],
+            "observed_symptom_sequence": [
+              {
+                "tick": 30,
+                "elapsed_seconds": 1800.0,
+                "event": "symptom_observed",
+                "signal": "solar_measurement_residual",
+                "evidence_id": "t30:solar_measurement_residual",
+                "nodes": [
+                  "solar_sensor"
+                ]
+              },
+              {
+                "tick": 30,
+                "elapsed_seconds": 1800.0,
+                "event": "symptom_observed",
+                "signal": "inverter_output_residual",
+                "evidence_id": "t30:inverter_output_residual",
+                "nodes": [
+                  "inverter"
+                ]
+              },
+              {
+                "tick": 30,
+                "elapsed_seconds": 1800.0,
+                "event": "symptom_observed",
+                "signal": "unmet_demand",
+                "evidence_id": "t30:unmet_demand",
+                "nodes": [
+                  "delivered"
+                ]
+              }
+            ],
+            "potentially_affected_components": [
+              "communication",
+              "controller",
+              "delivered",
+              "inverter"
+            ],
+            "recovery": "Alerts stayed absent for 5 ticks; the incident is resolved as of tick 116. This does not prove a corrective action caused recovery.",
+            "uncertainty": [
+              "The source is a model hypothesis, not a proven root cause",
+              "Structural dependencies and temporal ordering do not establish causation",
+              "Unserved demand may reflect normal resource scarcity",
+              "Residual evidence is not feature importance or candidate-specific causal attribution"
+            ]
+          },
+          "total_evidence_records": 241,
+          "latest_evidence_per_signal": [
+            {
+              "id": "t109:solar_measurement_residual",
+              "tick": 109,
+              "elapsed_seconds": 6540.0,
+              "signal": "solar_measurement_residual",
+              "nodes": [
+                "solar_sensor"
+              ],
+              "value": 75.6817246349269,
+              "threshold": 5.0,
+              "unit": "noise stddev",
+              "kind": "residual_observation",
+              "sample": {
+                "tick": 109,
+                "elapsed_seconds": 6540.0,
+                "expected_solar_kw": 8.216142208984134,
+                "measured_solar_kw": 17.54331939231019,
+                "measured_soc_pct": 90.57274531310752,
+                "battery_power_kw": -5.0,
+                "demand_kw": 5.565588401772376,
+                "delivered_kw": 3.087496520624769,
+                "unmet_demand_kw": 2.4780918811476074,
+                "controller_command_kw": -5.0,
+                "inverter_requested_kw": 5.565588401772376,
+                "inverter_actual_kw": 3.087496520624769,
+                "message_age_seconds": 0.0,
+                "message_source_tick": 109,
+                "applied_reserve_soc_pct": 10.0,
+                "applied_discharge_limit_kw": 5.0,
+                "config_integrity_ok": true,
+                "controller_inputs": {
+                  "source_tick": 109,
+                  "solar_kw": 17.54331939231019,
+                  "soc_pct": 90.57274531310752,
+                  "demand_kw": 5.565588401772376
+                }
+              }
+            },
+            {
+              "id": "t109:inverter_output_residual",
+              "tick": 109,
+              "elapsed_seconds": 6540.0,
+              "signal": "inverter_output_residual",
+              "nodes": [
+                "inverter"
+              ],
+              "value": 2.4780918811476074,
+              "threshold": 0.58,
+              "unit": "kW",
+              "kind": "residual_observation",
+              "sample": {
+                "tick": 109,
+                "elapsed_seconds": 6540.0,
+                "expected_solar_kw": 8.216142208984134,
+                "measured_solar_kw": 17.54331939231019,
+                "measured_soc_pct": 90.57274531310752,
+                "battery_power_kw": -5.0,
+                "demand_kw": 5.565588401772376,
+                "delivered_kw": 3.087496520624769,
+                "unmet_demand_kw": 2.4780918811476074,
+                "controller_command_kw": -5.0,
+                "inverter_requested_kw": 5.565588401772376,
+                "inverter_actual_kw": 3.087496520624769,
+                "message_age_seconds": 0.0,
+                "message_source_tick": 109,
+                "applied_reserve_soc_pct": 10.0,
+                "applied_discharge_limit_kw": 5.0,
+                "config_integrity_ok": true,
+                "controller_inputs": {
+                  "source_tick": 109,
+                  "solar_kw": 17.54331939231019,
+                  "soc_pct": 90.57274531310752,
+                  "demand_kw": 5.565588401772376
+                }
+              }
+            },
+            {
+              "id": "t111:unmet_demand",
+              "tick": 111,
+              "elapsed_seconds": 6660.0,
+              "signal": "unmet_demand",
+              "nodes": [
+                "delivered"
+              ],
+              "value": 0.1715454496866684,
+              "threshold": 0.1,
+              "unit": "kW",
+              "kind": "observed_impact",
+              "sample": {
+                "tick": 111,
+                "elapsed_seconds": 6660.0,
+                "expected_solar_kw": 8.430430766192384,
+                "measured_solar_kw": 8.60912394294933,
+                "measured_soc_pct": 91.0071157856865,
+                "battery_power_kw": -2.654133253390282,
+                "demand_kw": 5.716791061976686,
+                "delivered_kw": 5.545245612290017,
+                "unmet_demand_kw": 0.1715454496866684,
+                "controller_command_kw": -2.654133253390282,
+                "inverter_requested_kw": 5.716791061976686,
+                "inverter_actual_kw": 5.545245612290017,
+                "message_age_seconds": 0.0,
+                "message_source_tick": 111,
+                "applied_reserve_soc_pct": 10.0,
+                "applied_discharge_limit_kw": 5.0,
+                "config_integrity_ok": true,
+                "controller_inputs": {
+                  "source_tick": 111,
+                  "solar_kw": 8.60912394294933,
+                  "soc_pct": 91.0071157856865,
+                  "demand_kw": 5.716791061976686
+                }
+              }
+            }
+          ],
+          "graph": {
+            "nodes": [
+              {
+                "id": "irradiance",
+                "label": "Irradiance",
+                "candidate_source": false,
+                "observed_symptom": false,
+                "potentially_affected": false,
+                "evidence_ids": [],
+                "telemetry": [
+                  {
+                    "tick": 116,
+                    "elapsed_seconds": 6960.0,
+                    "expected_solar_kw": 7.903473655350931
+                  }
+                ],
+                "events": [],
+                "full_telemetry_row_count": 87
+              },
+              {
+                "id": "solar",
+                "label": "Solar",
+                "candidate_source": false,
+                "observed_symptom": false,
+                "potentially_affected": false,
+                "evidence_ids": [],
+                "telemetry": [
+                  {
+                    "tick": 116,
+                    "elapsed_seconds": 6960.0,
+                    "expected_solar_kw": 7.903473655350931
+                  }
+                ],
+                "events": [],
+                "full_telemetry_row_count": 87
+              },
+              {
+                "id": "solar_sensor",
+                "label": "Solar Sensor",
+                "candidate_source": true,
+                "observed_symptom": true,
+                "potentially_affected": false,
+                "evidence_ids": [
+                  "t109:solar_measurement_residual"
+                ],
+                "telemetry": [
+                  {
+                    "tick": 116,
+                    "elapsed_seconds": 6960.0,
+                    "measured_solar_kw": 7.813322780869745,
+                    "expected_solar_kw": 7.903473655350931
+                  }
+                ],
+                "events": [
+                  {
+                    "tick": 30,
+                    "elapsed_seconds": 1800.0,
+                    "event": "symptom_observed",
+                    "signal": "solar_measurement_residual",
+                    "evidence_id": "t30:solar_measurement_residual",
+                    "nodes": [
+                      "solar_sensor"
+                    ]
+                  }
+                ],
+                "full_telemetry_row_count": 87
+              },
+              {
+                "id": "battery",
+                "label": "Battery",
+                "candidate_source": false,
+                "observed_symptom": false,
+                "potentially_affected": false,
+                "evidence_ids": [],
+                "telemetry": [
+                  {
+                    "tick": 116,
+                    "elapsed_seconds": 6960.0,
+                    "battery_power_kw": -1.8869551996447251
+                  }
+                ],
+                "events": [],
+                "full_telemetry_row_count": 87
+              },
+              {
+                "id": "battery_sensor",
+                "label": "Battery Sensor",
+                "candidate_source": false,
+                "observed_symptom": false,
+                "potentially_affected": false,
+                "evidence_ids": [],
+                "telemetry": [
+                  {
+                    "tick": 116,
+                    "elapsed_seconds": 6960.0,
+                    "measured_soc_pct": 91.85180631002248
+                  }
+                ],
+                "events": [],
+                "full_telemetry_row_count": 87
+              },
+              {
+                "id": "demand",
+                "label": "Demand",
+                "candidate_source": false,
+                "observed_symptom": false,
+                "potentially_affected": false,
+                "evidence_ids": [],
+                "telemetry": [
+                  {
+                    "tick": 116,
+                    "elapsed_seconds": 6960.0,
+                    "demand_kw": 5.689312877976019
+                  }
+                ],
+                "events": [],
+                "full_telemetry_row_count": 87
+              },
+              {
+                "id": "demand_sensor",
+                "label": "Demand Sensor",
+                "candidate_source": false,
+                "observed_symptom": false,
+                "potentially_affected": false,
+                "evidence_ids": [],
+                "telemetry": [
+                  {
+                    "tick": 116,
+                    "elapsed_seconds": 6960.0,
+                    "demand_kw": 5.689312877976019
+                  }
+                ],
+                "events": [],
+                "full_telemetry_row_count": 87
+              },
+              {
+                "id": "communication",
+                "label": "Communication",
+                "candidate_source": false,
+                "observed_symptom": false,
+                "potentially_affected": true,
+                "evidence_ids": [],
+                "telemetry": [
+                  {
+                    "tick": 116,
+                    "elapsed_seconds": 6960.0,
+                    "message_age_seconds": 0.0,
+                    "message_source_tick": 116,
+                    "controller_inputs": {
+                      "source_tick": 116,
+                      "solar_kw": 7.813322780869745,
+                      "soc_pct": 91.85180631002248,
+                      "demand_kw": 5.689312877976019
+                    }
+                  }
+                ],
+                "events": [],
+                "full_telemetry_row_count": 87
+              },
+              {
+                "id": "controller",
+                "label": "Controller",
+                "candidate_source": false,
+                "observed_symptom": false,
+                "potentially_affected": true,
+                "evidence_ids": [],
+                "telemetry": [
+                  {
+                    "tick": 116,
+                    "elapsed_seconds": 6960.0,
+                    "controller_inputs": {
+                      "source_tick": 116,
+                      "solar_kw": 7.813322780869745,
+                      "soc_pct": 91.85180631002248,
+                      "demand_kw": 5.689312877976019
+                    },
+                    "controller_command_kw": -1.8869551996447251,
+                    "inverter_requested_kw": 5.689312877976019
+                  }
+                ],
+                "events": [],
+                "full_telemetry_row_count": 87
+              },
+              {
+                "id": "firmware",
+                "label": "Firmware",
+                "candidate_source": false,
+                "observed_symptom": false,
+                "potentially_affected": false,
+                "evidence_ids": [],
+                "telemetry": [
+                  {
+                    "tick": 116,
+                    "elapsed_seconds": 6960.0,
+                    "applied_reserve_soc_pct": 10.0,
+                    "applied_discharge_limit_kw": 5.0,
+                    "config_integrity_ok": true
+                  }
+                ],
+                "events": [],
+                "full_telemetry_row_count": 87
+              },
+              {
+                "id": "inverter",
+                "label": "Inverter",
+                "candidate_source": false,
+                "observed_symptom": true,
+                "potentially_affected": true,
+                "evidence_ids": [
+                  "t109:inverter_output_residual"
+                ],
+                "telemetry": [
+                  {
+                    "tick": 116,
+                    "elapsed_seconds": 6960.0,
+                    "inverter_requested_kw": 5.689312877976019,
+                    "inverter_actual_kw": 5.689312877976019
+                  }
+                ],
+                "events": [
+                  {
+                    "tick": 30,
+                    "elapsed_seconds": 1800.0,
+                    "event": "symptom_observed",
+                    "signal": "inverter_output_residual",
+                    "evidence_id": "t30:inverter_output_residual",
+                    "nodes": [
+                      "inverter"
+                    ]
+                  }
+                ],
+                "full_telemetry_row_count": 87
+              },
+              {
+                "id": "delivered",
+                "label": "Delivered",
+                "candidate_source": false,
+                "observed_symptom": true,
+                "potentially_affected": true,
+                "evidence_ids": [
+                  "t111:unmet_demand"
+                ],
+                "telemetry": [
+                  {
+                    "tick": 116,
+                    "elapsed_seconds": 6960.0,
+                    "demand_kw": 5.689312877976019,
+                    "delivered_kw": 5.689312877976019,
+                    "unmet_demand_kw": 0
+                  }
+                ],
+                "events": [
+                  {
+                    "tick": 30,
+                    "elapsed_seconds": 1800.0,
+                    "event": "symptom_observed",
+                    "signal": "unmet_demand",
+                    "evidence_id": "t30:unmet_demand",
+                    "nodes": [
+                      "delivered"
+                    ]
+                  }
+                ],
+                "full_telemetry_row_count": 87
+              }
+            ],
+            "edges": [
+              {
+                "source": "irradiance",
+                "target": "solar",
+                "kind": "physical",
+                "dependency": "Irradiance determines PV power",
+                "suspected": false,
+                "evidence_ids": [],
+                "evidence_scope": "known dependency only",
+                "uncertainty": null
+              },
+              {
+                "source": "solar",
+                "target": "solar_sensor",
+                "kind": "measurement",
+                "dependency": "Sensor measures PV output",
+                "suspected": false,
+                "evidence_ids": [],
+                "evidence_scope": "known dependency only",
+                "uncertainty": null
+              },
+              {
+                "source": "solar",
+                "target": "inverter",
+                "kind": "physical",
+                "dependency": "PV contributes to DC bus",
+                "suspected": false,
+                "evidence_ids": [],
+                "evidence_scope": "known dependency only",
+                "uncertainty": null
+              },
+              {
+                "source": "solar_sensor",
+                "target": "communication",
+                "kind": "information",
+                "dependency": "Timestamped PV reading",
+                "suspected": true,
+                "evidence_ids": [
+                  "t109:inverter_output_residual",
+                  "t111:unmet_demand"
+                ],
+                "evidence_scope": "downstream symptom on a structural path",
+                "uncertainty": "Intermediate transmission is not directly established"
+              },
+              {
+                "source": "battery",
+                "target": "battery_sensor",
+                "kind": "measurement",
+                "dependency": "Sensor reports stored energy",
+                "suspected": false,
+                "evidence_ids": [],
+                "evidence_scope": "known dependency only",
+                "uncertainty": null
+              },
+              {
+                "source": "battery",
+                "target": "inverter",
+                "kind": "physical",
+                "dependency": "Battery contributes to DC bus",
+                "suspected": false,
+                "evidence_ids": [],
+                "evidence_scope": "known dependency only",
+                "uncertainty": null
+              },
+              {
+                "source": "battery_sensor",
+                "target": "communication",
+                "kind": "information",
+                "dependency": "Timestamped SOC reading",
+                "suspected": false,
+                "evidence_ids": [],
+                "evidence_scope": "known dependency only",
+                "uncertainty": null
+              },
+              {
+                "source": "demand",
+                "target": "demand_sensor",
+                "kind": "measurement",
+                "dependency": "Meter measures AC demand",
+                "suspected": false,
+                "evidence_ids": [],
+                "evidence_scope": "known dependency only",
+                "uncertainty": null
+              },
+              {
+                "source": "demand_sensor",
+                "target": "communication",
+                "kind": "information",
+                "dependency": "Timestamped demand reading",
+                "suspected": false,
+                "evidence_ids": [],
+                "evidence_scope": "known dependency only",
+                "uncertainty": null
+              },
+              {
+                "source": "communication",
+                "target": "controller",
+                "kind": "information",
+                "dependency": "Latest received packet drives dispatch",
+                "suspected": true,
+                "evidence_ids": [
+                  "t109:inverter_output_residual",
+                  "t111:unmet_demand"
+                ],
+                "evidence_scope": "downstream symptom on a structural path",
+                "uncertainty": "Intermediate transmission is not directly established"
+              },
+              {
+                "source": "controller",
+                "target": "battery",
+                "kind": "command",
+                "dependency": "Constrained battery dispatch",
+                "suspected": false,
+                "evidence_ids": [],
+                "evidence_scope": "known dependency only",
+                "uncertainty": null
+              },
+              {
+                "source": "controller",
+                "target": "inverter",
+                "kind": "command",
+                "dependency": "Requested AC output",
+                "suspected": true,
+                "evidence_ids": [
+                  "t109:inverter_output_residual",
+                  "t111:unmet_demand"
+                ],
+                "evidence_scope": "downstream symptom on a structural path",
+                "uncertainty": "Intermediate transmission is not directly established"
+              },
+              {
+                "source": "firmware",
+                "target": "controller",
+                "kind": "configuration",
+                "dependency": "Reserve and dispatch limits",
+                "suspected": false,
+                "evidence_ids": [],
+                "evidence_scope": "known dependency only",
+                "uncertainty": null
+              },
+              {
+                "source": "inverter",
+                "target": "delivered",
+                "kind": "physical",
+                "dependency": "AC output serves demand",
+                "suspected": true,
+                "evidence_ids": [
+                  "t111:unmet_demand"
+                ],
+                "evidence_scope": "downstream symptom on a structural path",
+                "uncertainty": "Intermediate transmission is not directly established"
+              }
+            ],
+            "suspected_paths": [
+              {
+                "nodes": [
+                  "solar_sensor",
+                  "communication",
+                  "controller",
+                  "inverter"
+                ],
+                "evidence_ids": [
+                  "t109:inverter_output_residual"
+                ],
+                "interpretation": "Known dependency path compatible with an observed symptom; not causal proof"
+              },
+              {
+                "nodes": [
+                  "solar_sensor",
+                  "communication",
+                  "controller",
+                  "inverter",
+                  "delivered"
+                ],
+                "evidence_ids": [
+                  "t111:unmet_demand"
+                ],
+                "interpretation": "Known dependency path compatible with an observed symptom; not causal proof"
+              }
+            ],
+            "candidate_source_nodes": [
+              "solar_sensor"
+            ],
+            "observed_nodes": [
+              "delivered",
+              "inverter",
+              "solar_sensor"
+            ],
+            "potentially_affected_nodes": [
+              "communication",
+              "controller",
+              "delivered",
+              "inverter"
+            ],
+            "as_of_tick": 116,
+            "limitations": [
+              "Temporal ordering and dependency paths do not establish causation",
+              "Observed downstream symptoms may have competing explanations",
+              "One shortest structural path is shown per candidate and symptom; alternative routes may exist"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

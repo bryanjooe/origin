@@ -32,7 +32,7 @@ export function LiveSimulationPage() {
   const status = (system.data?.simulation_status ?? system.data?.status ?? 'unknown').toLowerCase()
   const isRunning = status === 'running'
   const isPaused = status === 'paused'
-  const canStart = status !== 'running' && status !== 'paused' && status !== 'unknown'
+  const canStart = status !== 'running' && status !== 'unknown'
   const components = system.data?.components ?? []
   const simulationSeconds = system.data?.simulation_time_seconds ?? system.data?.sim_time_seconds
 
@@ -69,11 +69,7 @@ export function LiveSimulationPage() {
         <Card title="Simulation controls" eyebrow="CONTROL / RUN" className="controls-card">
           <div className="control-grid">
             <label className="field-label">SCENARIO
-              <select value={scenario} disabled={pending !== null || !system.data || isRunning} onChange={(event) => {
-                const next = event.target.value
-                setScenario(next)
-                void perform('scenario', () => api.setScenario({ scenario: next === 'actuator' ? 'inverter' : next, seed, speed }))
-              }}>
+              <select value={scenario} disabled={pending !== null || !system.data} onChange={(event) => setScenario(event.target.value)}>
                 {scenarios.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
               </select>
             </label>
@@ -90,25 +86,25 @@ export function LiveSimulationPage() {
               <input aria-label="Fault severity" type="range" min="0.05" max="1" step="0.05" value={severity} disabled={scenario === 'normal' || pending !== null || !system.data} onChange={(event) => setSeverity(Number(event.target.value))} />
             </label>
             <label className="field-label">START TICK
-              <input type="number" min="0" step="1" value={startTick} disabled={scenario === 'normal' || pending !== null || !system.data} onChange={(event) => setStartTick(Math.max(0, Number(event.target.value)))} />
+              <input type="number" min={system.data?.next_tick ?? 0} step="1" value={startTick} disabled={scenario === 'normal' || pending !== null || !system.data} onChange={(event) => setStartTick(Math.max(system.data?.next_tick ?? 0, Number(event.target.value)))} />
             </label>
             <label className="field-label">RANDOM SEED
               <input type="number" min="0" step="1" value={seed} disabled={pending !== null || !system.data || isRunning} onChange={(event) => setSeed(Math.max(0, Number(event.target.value)))} />
             </label>
           </div>
           <div className="control-actions">
-            <Button variant="primary" icon={<Play size={14} />} loading={pending === 'start'} disabled={!canStart || pending !== null || !!system.error || !system.data} onClick={() => void perform('start', () => api.startSimulation({ scenario: simulationScenario, seed, speed }))}>Start</Button>
+            <Button variant="primary" icon={<Play size={14} />} loading={pending === 'start'} disabled={!canStart || pending !== null || !!system.error || !system.data} onClick={() => void perform('start', () => api.startSimulation({ scenario: simulationScenario, seed, speed, severity, start_tick: startTick }))}>Start</Button>
             <Button icon={<Pause size={14} />} loading={pending === 'pause'} disabled={!isRunning || pending !== null || !system.data} onClick={() => void perform('pause', api.pauseSimulation)}>Pause</Button>
             <Button icon={<Play size={14} />} loading={pending === 'resume'} disabled={!isPaused || pending !== null || !system.data} onClick={() => void perform('resume', api.resumeSimulation)}>Resume</Button>
-            <Button variant="quiet" icon={<RotateCcw size={14} />} loading={pending === 'reset'} disabled={pending !== null || !system.data} onClick={() => void perform('reset', api.resetSimulation)}>Reset</Button>
+            <Button variant="quiet" icon={<RotateCcw size={14} />} loading={pending === 'reset'} disabled={pending !== null || !system.data || isRunning} onClick={() => void perform('reset', () => api.resetSimulation(seed))}>Reset</Button>
             <Button variant="secondary" icon={<SlidersHorizontal size={14} />} loading={pending === 'inject'} disabled={scenario === 'normal' || pending !== null || !isRunning} onClick={() => void perform('inject', () => api.injectFault({ scenario: simulationScenario, severity, start_tick: startTick, seed }))}>Inject fault</Button>
           </div>
-          <p className="control-footnote"><ShieldAlert size={13} />All actions are simulation-only. A selected scenario is not a model prediction.</p>
+          <p className="control-footnote"><ShieldAlert size={13} />All actions are simulation-only. A selected fault scenario is simulated ground truth, separate from model predictions.</p>
         </Card>
 
         <Card title="Simulation clock" eyebrow="TIME / STATE" className="clock-card">
           <div className="large-clock">{typeof system.data?.simulation_time === 'string' ? system.data.simulation_time : typeof simulationSeconds === 'number' ? <>{Math.floor(simulationSeconds / 60)}<span className="clock-unit"> MIN</span></> : '—'}</div>
-          <div className="clock-meta"><span><i className="live-dot" />{isRunning ? 'ADVANCING' : isPaused ? 'PAUSED' : 'NOT RUNNING'}</span><span><Activity size={12} />{stream === 'websocket' ? 'LIVE STREAM' : stream === 'polling' ? 'POLLING' : stream.toUpperCase()}</span></div>
+          <div className="clock-meta"><span><i className="live-dot" />{isRunning ? 'ADVANCING' : isPaused ? 'PAUSED' : 'NOT RUNNING'}</span><span><Activity size={12} />{stream.toUpperCase()}</span></div>
           {!system.data && !system.loading && <EmptyState title="Clock unavailable" detail={system.error ?? 'No simulation state returned by the API.'} kind={system.error ? 'error' : 'unknown'} />}
         </Card>
       </div>

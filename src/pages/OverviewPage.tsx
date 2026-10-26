@@ -22,7 +22,7 @@ export function OverviewPage() {
     <>
       <div className="page-intro">
         <div><p className="eyebrow">MICROGRID / SYSTEM STATUS</p><h1>System overview</h1><p className="intro-copy">Operating signals and fault indicators from the current simulation.</p></div>
-        <div className="intro-actions"><Badge severity={getSeverity(system.data?.anomaly_status ?? system.data?.anomaly?.status)}>{system.data?.anomaly_status ? `ANOMALY ${simulationLabel(system.data.anomaly_status)}` : 'ANOMALY UNKNOWN'}</Badge><span className="stream-label">{stream === 'websocket' ? 'LIVE STREAM' : stream === 'polling' ? 'POLLING' : 'STREAM UNKNOWN'}</span></div>
+        <div className="intro-actions"><Badge severity={getSeverity(system.data?.anomaly_status ?? system.data?.anomaly?.status)}>{system.data?.anomaly_status ? `ANOMALY ${simulationLabel(system.data.anomaly_status)}` : 'ANOMALY UNKNOWN'}</Badge><span className="stream-label">{stream === 'polling' ? 'POLLING' : 'STREAM UNKNOWN'}</span></div>
       </div>
       {system.loading && !system.data && <EmptyState title="Loading microgrid state" detail="Waiting for current simulation health and metrics." kind="loading" />}
       {system.error && <EmptyState title="System state unavailable" detail={system.error} kind="error" action={<Button variant="secondary" onClick={system.reload}>Retry</Button>} />}
