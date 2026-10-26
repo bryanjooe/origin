@@ -1,12 +1,13 @@
 # TraceX GreenGrid
 
-Software-only renewable microgrid fault-localization project. **Stages 1–4 are
+Software-only renewable microgrid fault-localization project. **Stages 1–5 are
 implemented:** physical simulation, deterministic fault injection, timestamped
 communication, controller logs, dependency topology, and a normal-baseline
 Isolation Forest anomaly detector with separately labeled residual checks, and a
 Random Forest source classifier with confidence-based abstention. Incident reports
 now group alerts, trace evidence-compatible dependency paths and explain observations.
-There is no web server, dashboard, or incident database yet.
+FastAPI now serves synchronized simulation controls, real inference, persisted
+SQLite incidents and paired sustainability comparisons. The frontend is next.
 
 ## Setup
 
@@ -111,6 +112,49 @@ or accuracy claim. See [investigation methodology](docs/investigation.md),
 [validation](docs/stage4-validation.md), and
 [measured compact examples](docs/stage4-examples.json).
 
+## Stage 5: run the local API
+
+Install the updated requirements, train both models using the Stage 2/3 commands,
+then start **one server process with one worker** from the repository root:
+
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000 --workers 1
+```
+
+Open [interactive API documentation](http://127.0.0.1:8000/docs). The server starts
+paused; use Start/Resume for live ticks or Step for deterministic advancement while
+paused. Poll state/telemetry at roughly one-second intervals. Repeated Start calls
+reuse the same worker. Missing models explicitly report unavailable, while physical
+simulation remains usable. No predictions or incidents are fabricated.
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/api/health
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/api/simulation/start -ContentType application/json -Body '{"speed":2}'
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/api/simulation/pause
+```
+
+For a complete measured HTTP demo after training, run in a second terminal:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/verify_api.py
+```
+
+This archives the current run, creates a seeded inverter-fault scenario, advances
+it, applies simulated correction, checks persisted reports/energy balance and
+executes the real quick held-out evaluation. Results are saved to
+`outputs/stage5-live-check.json`; the final live run is left paused.
+
+SQLite defaults to `outputs/server/greengrid.sqlite3`. Reset preserves archived runs
+and incidents; restart retains history and starts a new paused run. Open incidents
+are marked interrupted when the run/backend ends without observed recovery.
+Model paths/database location are configurable through environment variables in
+[.env.example](.env.example); the file is a reference and is not loaded automatically.
+See [API contract](docs/api.md), [energy accounting](docs/sustainability.md), and
+[Stage 5 validation](docs/stage5-validation.md).
+
+**Two stages remain after Stage 5:** Stage 6 (React dashboard) and Stage 7
+(complete evaluation, demo validation and final documentation).
+
 ## Structure
 
 ```text
@@ -122,6 +166,11 @@ backend/
     detection/          # Causal features, normal-only ML, calibration, evaluation
     localization/       # Supervised source classifier, confidence/Unknown, evaluation
     explainability/     # Incident lifecycle, observed evidence, deterministic explanations
+    api/                # One synchronized simulation worker, model loading/evaluation
+    schemas/            # Pydantic HTTP contracts
+    database/           # Transactional SQLite history
+    sustainability/     # Conserved energy/provenance ledgers and paired comparisons
+    main.py             # FastAPI app and endpoints
   tests/                # Deterministic physics, faults, graph, export checks
   requirements.txt
 docs/simulation.md      # Equations, units, and limitations
@@ -144,8 +193,8 @@ sim.reset()    # Clears history and schedules; restores original seeded RNG stat
 
 Only one fault can be active at a time. Disjoint scheduled faults are supported.
 `step()` executes exactly one tick; no background loop or wall-clock sleep exists.
-Callers must serialize simulator access. Start/pause/resume synchronization belongs
-to the future API stage. Methods are intentionally synchronous in Stage 1.
+Direct library callers must serialize simulator access. The Stage 5 API supplies
+this synchronization for HTTP requests. The physical simulator stays synchronous.
 
 See [simulation documentation](docs/simulation.md) for fault modes, field semantics,
 energy accounting, graph limitations, and the next-stage boundary.

@@ -147,9 +147,11 @@ class IncidentTracker:
                                              "evidence_id": item["id"], "nodes": item["nodes"]})
                 previous_signals.add(item["signal"])
 
-    def reports(self):
+    def reports(self, changed_since=None):
         reports = []
         for stored in [*self._completed, *([self._active] if self._active else [])]:
+            if changed_since is not None and changed_since.get(stored["id"]) == (stored["as_of_tick"], stored["status"]):
+                continue
             incident = deepcopy(stored)
             incident["timeline"].sort(key=lambda event: (event["tick"], event["event"]))
             graph = incident_graph(incident["diagnosis"], incident["evidence"], incident["samples"], incident["timeline"])

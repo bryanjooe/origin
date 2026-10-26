@@ -124,8 +124,9 @@ reports = tracker.reports()
 Current limits: retained observations grow with incident length, incident IDs are
 local to a tracker, and alert-based resolution can occur while an unobservable fault
 persists. Model mistakes can yield incorrect or Unknown origins; graphs preserve
-that uncertainty rather than consulting hidden truth. There is no persistent
-database, live API, interactive Cytoscape UI or end-to-end accuracy benchmark yet.
-Those remain for subsequent stages. Existing Stage 2/3 held-out metrics remain
+that uncertainty rather than consulting hidden truth. Stage 5 now adds the
+[live API and persistent history](api.md), namespacing incident IDs by run. The
+interactive Cytoscape UI and end-to-end accuracy benchmark remain for later stages.
+Existing Stage 2/3 held-out metrics remain
 per-tick detector/classifier measurements and must not be relabeled as incident
 performance.
