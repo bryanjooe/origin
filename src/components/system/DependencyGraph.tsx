@@ -39,12 +39,12 @@ export function DependencyGraph({
       minZoom: 0.45,
       maxZoom: 2.2,
       style: [
-        { selector: 'node', style: { 'background-color': '#e1ebe4', 'border-color': '#719683', 'border-width': 1, label: 'data(label)', color: '#1c2924', 'font-family': 'Avenir Next, Segoe UI, sans-serif', 'font-size': '10px', 'text-wrap': 'wrap', 'text-max-width': '90px', width: 78, height: 38, shape: 'round-rectangle', 'text-valign': 'center', 'text-halign': 'center' } },
+        { selector: 'node', style: { 'background-color': '#e1ebe4', 'border-color': '#719683', 'border-width': 1.25, label: 'data(label)', color: '#1c2924', 'font-family': 'Avenir Next, Segoe UI, sans-serif', 'font-size': '12.5px', 'text-wrap': 'wrap', 'text-max-width': '112.5px', width: 97.5, height: 47.5, shape: 'round-rectangle', 'text-valign': 'center', 'text-halign': 'center' } },
         { selector: 'node[status = "critical"]', style: { 'background-color': '#f3e2df', 'border-color': '#a9433d' } },
         { selector: 'node[status = "warning"]', style: { 'background-color': '#f3eadb', 'border-color': '#a9622f' } },
-        { selector: 'node:selected', style: { 'border-width': 2, 'border-color': '#168c98', 'background-color': '#d7eaeb' } },
-        { selector: 'edge', style: { width: 1, 'line-color': '#98a99d', 'target-arrow-color': '#98a99d', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', 'arrow-scale': 0.75 } },
-        { selector: 'edge.suspected', style: { 'line-style': 'dashed', width: 2, 'line-color': '#a9622f', 'target-arrow-color': '#a9622f' } },
+        { selector: 'node:selected', style: { 'border-width': 2.5, 'border-color': '#168c98', 'background-color': '#d7eaeb' } },
+        { selector: 'edge', style: { width: 1.25, 'line-color': '#98a99d', 'target-arrow-color': '#98a99d', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', 'arrow-scale': 0.75 } },
+        { selector: 'edge.suspected', style: { 'line-style': 'dashed', width: 2.5, 'line-color': '#a9622f', 'target-arrow-color': '#a9622f' } },
       ],
     })
     cy.on('tap', 'node', (event: EventObject) => {
