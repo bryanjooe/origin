@@ -312,10 +312,33 @@ class SimulationRuntime:
     async def inject(self, fault_request):
         async with self.lock:
             fault = fault_request.fault(self.sim.tick)
+            engines = (self.sim.faults, self.uncorrected.faults)
+            if fault_request.start_tick is None:
+                # An implicit injection should use the first slot that is free
+                # in both the operated run and its uncorrected comparison run.
+                # This keeps the paired comparison valid after an initial or
+                # corrected fault has already reserved a window.
+                start_tick = fault.start_tick
+                while True:
+                    conflicts = [
+                        item
+                        for engine in engines
+                        for item in engine.ground_truth()
+                        if item["cancelled_at_tick"] is None
+                        and max(item["start_tick"], start_tick)
+                        < min(item["start_tick"] + item["duration_ticks"],
+                              start_tick + fault.duration_ticks)
+                    ]
+                    if not conflicts:
+                        break
+                    start_tick = max(item["start_tick"] + item["duration_ticks"]
+                                     for item in conflicts)
+                fault = type(fault)(fault.kind, fault.mode, start_tick,
+                                    fault.duration_ticks, fault.severity)
             if fault.start_tick + fault.duration_ticks > self.settings.max_ticks:
                 raise ValueError("Fault must finish within the configured run tick limit")
             # Validate both engines before mutating either schedule.
-            for engine in (self.sim.faults, self.uncorrected.faults):
+            for engine in engines:
                 if fault.start_tick < self.sim.tick or any(
                     max(item["start_tick"], fault.start_tick) < min(item["start_tick"] + item["duration_ticks"], fault.start_tick + fault.duration_ticks)
                     for item in engine.ground_truth() if item["cancelled_at_tick"] is None):

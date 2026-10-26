@@ -334,4 +334,5 @@ export interface SimulationActionResponse {
   message?: string
   simulation_status?: string
   simulation_time?: string | number
+  scheduled?: { start_tick?: number; duration_ticks?: number }
 }

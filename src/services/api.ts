@@ -44,7 +44,7 @@ function number(value: unknown): number | undefined { return typeof value === 'n
 function text(value: unknown): string | undefined { return typeof value === 'string' ? value : undefined }
 
 export interface ScenarioPayload { scenario: string; seed?: number; speed?: number; severity?: number; start_tick?: number }
-export interface FaultPayload { scenario: string; severity: number; start_tick: number; seed: number }
+export interface FaultPayload { scenario: string; severity: number; start_tick?: number; seed: number }
 
 const faultModes: Record<string, { kind: string; mode: string }> = {
   sensor: { kind: 'sensor', mode: 'bias' }, communication: { kind: 'communication', mode: 'delay' },
@@ -213,8 +213,13 @@ export const api = {
   injectFault: async (payload: FaultPayload): Promise<SimulationActionResponse> => {
     const mode = faultModes[payload.scenario]
     if (!mode) throw new ApiError('Choose a fault scenario before injecting a fault.', 422)
-    const start = Math.max(0, Math.floor(payload.start_tick))
-    const raw = record(await post('/api/simulation/inject-fault', { ...mode, severity: payload.severity, start_tick: start, duration_ticks: Math.max(1, Math.min(120, 10000 - start)) }))
+    const start = payload.start_tick === undefined ? undefined : Math.max(0, Math.floor(payload.start_tick))
+    const raw = record(await post('/api/simulation/inject-fault', {
+      ...mode,
+      severity: payload.severity,
+      ...(start === undefined ? {} : { start_tick: start }),
+      duration_ticks: Math.max(1, Math.min(120, 10000 - (start ?? 0))),
+    }))
     return { ...raw, message: 'Fault scheduled as simulated ground truth; it is not a model prediction.' }
   },
   injectAttack: (payload: AttackPayload): Promise<AttackScheduleResponse> => post('/api/simulation/inject-attack', payload),

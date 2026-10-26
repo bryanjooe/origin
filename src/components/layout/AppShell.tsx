@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Activity, AlertTriangle, Bot, ChartNoAxesCombined, ChevronRight, CircleDot, Leaf, Menu, RadioTower, Zap } from 'lucide-react'
+import { Activity, AlertTriangle, Bot, ChartNoAxesCombined, ChevronRight, CircleDot, Home, Leaf, Menu, RadioTower, Zap } from 'lucide-react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { api } from '../../services/api'
 import { getSeverity } from '../../utils/status'
@@ -8,6 +8,7 @@ import { Badge } from '../ui'
 import { ThemeToggle } from '../ui/ThemeToggle'
 
 const routes = [
+  { to: '/welcome', label: 'Project homepage', icon: Home },
   { to: '/', label: 'System overview', icon: RadioTower, end: true },
   { to: '/simulation', label: 'Live simulation', icon: Activity },
   { to: '/investigation', label: 'Fault investigation', icon: AlertTriangle },

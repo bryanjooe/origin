@@ -29,6 +29,7 @@ export function LiveSimulationPage() {
   const [speed, setSpeed] = useState(1)
   const [pending, setPending] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [actionNotice, setActionNotice] = useState<string | null>(null)
   const actionLock = useRef(false)
   const status = (system.data?.simulation_status ?? system.data?.status ?? 'unknown').toLowerCase()
   const isRunning = status === 'running'
@@ -42,8 +43,13 @@ export function LiveSimulationPage() {
     actionLock.current = true
     setPending(name)
     setActionError(null)
+    setActionNotice(null)
     try {
       const result = await task()
+      if (name === 'inject' && result && typeof result === 'object' && 'scheduled' in result) {
+        const scheduled = result.scheduled as { start_tick?: number } | undefined
+        if (typeof scheduled?.start_tick === 'number') setActionNotice(`Fault scheduled at tick ${scheduled.start_tick}.`)
+      }
       system.reload()
       return result
     } catch (error) {
@@ -66,6 +72,7 @@ export function LiveSimulationPage() {
 
       {system.error && <EmptyState title="Simulation state unavailable" detail={system.error} kind="error" action={<Button variant="secondary" onClick={system.reload}>Retry</Button>} />}
       {actionError && <div className="inline-error" role="alert"><ShieldAlert size={15} />{actionError}</div>}
+      {actionNotice && <div className="inline-notice" role="status">{actionNotice}</div>}
 
       <div className="simulation-layout">
         <Card title="Simulation controls" eyebrow="CONTROL / RUN" className="controls-card">
@@ -87,8 +94,8 @@ export function LiveSimulationPage() {
             <label className="field-label">FAULT SEVERITY <span>{severity.toFixed(2)}</span>
               <input aria-label="Fault severity" type="range" min="0.05" max="1" step="0.05" value={severity} disabled={scenario === 'normal' || pending !== null || !system.data} onChange={(event) => setSeverity(Number(event.target.value))} />
             </label>
-            <label className="field-label">START TICK
-              <input type="number" min={system.data?.next_tick ?? 0} step="1" value={startTick} disabled={scenario === 'normal' || pending !== null || !system.data} onChange={(event) => setStartTick(Math.max(system.data?.next_tick ?? 0, Number(event.target.value)))} />
+            <label className="field-label">INITIAL FAULT TICK
+              <input type="number" min={system.data?.next_tick ?? 0} step="1" value={startTick} disabled={scenario === 'normal' || isRunning || pending !== null || !system.data} onChange={(event) => setStartTick(Math.max(system.data?.next_tick ?? 0, Number(event.target.value)))} />
             </label>
             <label className="field-label">RANDOM SEED
               <input type="number" min="0" step="1" value={seed} disabled={pending !== null || !system.data || isRunning} onChange={(event) => setSeed(Math.max(0, Number(event.target.value)))} />
@@ -99,7 +106,7 @@ export function LiveSimulationPage() {
             <Button icon={<Pause size={14} />} loading={pending === 'pause'} disabled={!isRunning || pending !== null || !system.data} onClick={() => void perform('pause', api.pauseSimulation)}>Pause</Button>
             <Button icon={<Play size={14} />} loading={pending === 'resume'} disabled={!isPaused || pending !== null || !system.data} onClick={() => void perform('resume', api.resumeSimulation)}>Resume</Button>
             <Button variant="quiet" icon={<RotateCcw size={14} />} loading={pending === 'reset'} disabled={pending !== null || !system.data || isRunning} onClick={() => void perform('reset', () => api.resetSimulation(seed))}>Reset</Button>
-            <Button variant="secondary" icon={<SlidersHorizontal size={14} />} loading={pending === 'inject'} disabled={scenario === 'normal' || pending !== null || !isRunning} onClick={() => void perform('inject', () => api.injectFault({ scenario: simulationScenario, severity, start_tick: startTick, seed }))}>Inject fault</Button>
+            <Button variant="secondary" icon={<SlidersHorizontal size={14} />} loading={pending === 'inject'} disabled={scenario === 'normal' || pending !== null || !isRunning} onClick={() => void perform('inject', () => api.injectFault({ scenario: simulationScenario, severity, seed }))}>Inject fault</Button>
           </div>
           <p className="control-footnote"><ShieldAlert size={13} />All actions are simulation-only. A selected fault scenario is simulated ground truth, separate from model predictions.</p>
         </Card>
