@@ -8,7 +8,9 @@ from pathlib import Path
 import joblib
 import numpy as np
 import sklearn
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, HistGradientBoostingClassifier
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.frozen import FrozenEstimator
 
 from .features import FEATURE_NAMES, FEATURE_VERSION
 
@@ -19,6 +21,14 @@ NATURE_DISPLAY = {"normal": "Normal", "fault": "Accidental fault", "attack": "Cy
 ORIGIN_DISPLAY = {"sensor": "Sensor", "communication": "Communication",
                   "controller": "Controller", "firmware_config": "Firmware-Config",
                   "actuator_inverter": "Actuator-Inverter"}
+
+
+def _forest_importance(estimator):
+    if hasattr(estimator, "feature_importances_"):
+        ranked = sorted(zip(FEATURE_NAMES, estimator.feature_importances_),
+                        key=lambda pair: (-float(pair[1]), pair[0]))
+        return [{"feature": name, "importance": float(value)} for name, value in ranked]
+    return []
 
 
 @dataclass(frozen=True)
@@ -56,7 +66,7 @@ class AttributionModels:
                 raise ValueError("Feature schema mismatch")
         return ids, seeds
 
-    def fit(self, samples, *, seed=42):
+    def fit(self, samples, *, seed=42, algorithm="random_forest", calibration_samples=None):
         ids, seeds = self._validate_samples(samples)
         nature = np.asarray([item["nature"] for item in samples])
         known = [item for item in samples if item["nature"] != "normal" and item["origin_layer"]]
@@ -71,24 +81,64 @@ class AttributionModels:
                                     for item in known], dtype=float)
         if not np.isfinite(values).all() or not np.isfinite(origin_values).all():
             raise ValueError("Features must be finite")
-        self.nature_model = RandomForestClassifier(n_estimators=240, max_depth=14,
-            min_samples_leaf=2, class_weight="balanced_subsample", random_state=seed, n_jobs=1)
-        self.origin_model = RandomForestClassifier(n_estimators=240, max_depth=14,
-            min_samples_leaf=2, class_weight="balanced_subsample", random_state=seed + 1, n_jobs=1)
-        self.nature_model.fit(values, nature)
-        self.origin_model.fit(origin_values, origins)
+        if algorithm not in {"random_forest", "gradient_boosting"}:
+            raise ValueError("Unknown model family")
+        if algorithm == "random_forest":
+            nature_base = RandomForestClassifier(n_estimators=320, max_depth=16,
+                min_samples_leaf=2, class_weight="balanced", random_state=seed, n_jobs=1)
+            origin_base = RandomForestClassifier(n_estimators=320, max_depth=16,
+                min_samples_leaf=2, class_weight="balanced", random_state=seed + 1, n_jobs=1)
+        else:
+            nature_base = HistGradientBoostingClassifier(max_iter=180, max_leaf_nodes=15,
+                l2_regularization=1.0, class_weight="balanced", random_state=seed)
+            origin_base = HistGradientBoostingClassifier(max_iter=180, max_leaf_nodes=15,
+                l2_regularization=1.0, class_weight="balanced", random_state=seed + 1)
+        nature_base.fit(values, nature)
+        origin_base.fit(origin_values, origins)
+        calibration_samples = calibration_samples or []
+        if calibration_samples:
+            calibration_ids, calibration_seeds = self._validate_samples(calibration_samples)
+            if ids & calibration_ids or seeds & calibration_seeds:
+                raise ValueError("Training and calibration runs/seeds must be disjoint")
+            calibration_values = np.asarray([[item["features"][name] for name in FEATURE_NAMES]
+                                             for item in calibration_samples], dtype=float)
+            calibration_nature = np.asarray([item["nature"] for item in calibration_samples])
+            calibration_known = [item for item in calibration_samples
+                                 if item["nature"] != "normal" and item["origin_layer"]]
+            calibration_origin_values = np.asarray([[item["features"][name] for name in FEATURE_NAMES]
+                for item in calibration_known], dtype=float)
+            calibration_origins = np.asarray([item["origin_layer"] for item in calibration_known])
+            if set(calibration_nature) != set(NATURE_CLASSES) or set(calibration_origins) != set(ORIGIN_CLASSES):
+                raise ValueError("Calibration data must include all nature and origin classes")
+            self.nature_model = CalibratedClassifierCV(FrozenEstimator(nature_base),
+                                                       method="sigmoid", cv="prefit")
+            self.origin_model = CalibratedClassifierCV(FrozenEstimator(origin_base),
+                                                       method="sigmoid", cv="prefit")
+            self.nature_model.fit(calibration_values, calibration_nature)
+            self.origin_model.fit(calibration_origin_values, calibration_origins)
+            confidence_kind = "sigmoid_calibrated_probability"
+            calibration_note = "Sigmoid calibration fit on run-disjoint validation windows; reliability still measured on held-out runs."
+        else:
+            self.nature_model, self.origin_model = nature_base, origin_base
+            confidence_kind = "uncalibrated_model_probability"
+            calibration_note = "Not calibrated; probabilities are model scores."
         self.metadata = {"feature_version": FEATURE_VERSION,
                          "feature_names": list(FEATURE_NAMES),
                          "sklearn_version": sklearn.__version__, "random_seed": seed,
-                         "training_run_ids": sorted(ids), "training_seeds": sorted(seeds),
+                         "training_run_ids": sorted(ids | {item["run_id"] for item in calibration_samples}),
+                         "training_seeds": sorted(seeds | {item["seed"] for item in calibration_samples}),
                          "training_sample_count": len(samples),
                          "training_nature_counts": dict(Counter(item["nature"] for item in samples)),
                          "training_origin_counts": dict(Counter(item["origin_layer"] for item in known)),
                          "nature_classes": list(NATURE_CLASSES),
                          "origin_classes": list(ORIGIN_CLASSES),
                          "policy": asdict(self.policy),
-                         "confidence_kind": "uncalibrated_random_forest_probability",
-                         "calibration": "Not calibrated; confidence values are model scores, not calibrated probabilities."}
+                         "algorithm": algorithm,
+                         "calibration_run_ids": sorted(item["run_id"] for item in calibration_samples),
+                         "feature_importance": _forest_importance(nature_base),
+                         "origin_feature_importance": _forest_importance(origin_base),
+                         "confidence_kind": confidence_kind,
+                         "calibration": calibration_note}
         return self
 
     def predict_features(self, features):

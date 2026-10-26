@@ -2,10 +2,12 @@
 
 from dataclasses import asdict, dataclass
 import json
+import math
 from pathlib import Path
 import random
 
 import pandas as pd
+import numpy as np
 
 from app.attack_injection import AttackType, StealthLevel
 from app.detection import AnomalyDetector, FeatureExtractor
@@ -13,6 +15,78 @@ from app.fault_injection import Fault
 from app.fault_injection.engine import MODES
 from app.simulator import GridConfig, MicrogridSimulator
 from .features import FEATURE_NAMES, WINDOW_TICKS, extract_window
+
+
+@dataclass(frozen=True)
+class AlertPolicy:
+    """Run-level alert gate calibrated on separate complete validation runs."""
+    score_threshold: float
+    warmup_ticks: int = 12
+    persistence_ticks: int = 2
+    repeated_rule_ticks: int = 3
+
+    def __post_init__(self):
+        if self.score_threshold < 0 or self.warmup_ticks < 0 or min(
+                self.persistence_ticks, self.repeated_rule_ticks) < 1:
+            raise ValueError("Invalid alert policy")
+
+
+def _first_policy_fire(statuses, policy):
+    score_run, rule_runs = 0, {}
+    for result in statuses:
+        tick = result["tick"]
+        if tick < policy.warmup_ticks:
+            continue
+        score_run = score_run + 1 if result["anomaly_score"] >= policy.score_threshold else 0
+        if score_run >= policy.persistence_ticks:
+            return tick - policy.persistence_ticks + 1
+        current = {check["signal"] for check in result["residual_checks"]}
+        for signal in list(rule_runs):
+            rule_runs[signal] = rule_runs[signal] + 1 if signal in current else 0
+        for signal in current:
+            rule_runs[signal] = rule_runs.get(signal, 0) + 1
+        if len(current) >= 2 or any(count >= policy.repeated_rule_ticks for count in rule_runs.values()):
+            return tick
+    return None
+
+
+def calibrate_alert_policy(validation_runs, detector, *, max_normal_false_alert_rate=0.05):
+    """Choose a run-level threshold/gate using validation runs only."""
+    normals = [run for run in validation_runs if run.nature == "normal"]
+    if not normals or not any(run.nature != "normal" for run in validation_runs):
+        raise ValueError("Alert calibration requires normal and event validation runs")
+    normal_maxima, statuses_by_id = [], {}
+    for run in validation_runs:
+        statuses = detector.predict(FeatureExtractor(run.config).transform(run.telemetry))
+        statuses_by_id[run.run_id] = statuses
+        if run.nature == "normal":
+            normal_maxima.append(max((r["anomaly_score"] for r in statuses
+                                      if r["tick"] >= 12), default=0.0))
+    candidates = []
+    for quantile in (0.90, 0.95, 0.975, 0.99, 1.0):
+        threshold = math.nextafter(float(np.quantile(normal_maxima, quantile)), math.inf)
+        for persistence in (1, 2, 3, 4):
+            policy = AlertPolicy(threshold, 12, persistence, 3)
+            false_rate = sum(_first_policy_fire(statuses_by_id[run.run_id], policy) is not None
+                             for run in normals) / len(normals)
+            if false_rate > max_normal_false_alert_rate:
+                continue
+            event_runs = [run for run in validation_runs if run.nature != "normal"]
+            covered = sum((fire := _first_policy_fire(statuses_by_id[run.run_id], policy)) is not None
+                          and run.start_tick <= fire < run.start_tick + run.duration_ticks
+                          for run in event_runs)
+            candidates.append((covered / len(event_runs), -false_rate, -persistence,
+                               policy, false_rate))
+    if not candidates:
+        threshold = float(np.max(normal_maxima))
+        return AlertPolicy(threshold, 12, 3, 3), {"validation_normal_false_alert_rate": 0.0,
+            "validation_event_coverage": 0.0, "constraint_met": False}
+    best = max(candidates, key=lambda item: item[:3])
+    return best[3], {"validation_normal_false_alert_rate": best[4],
+                     "validation_event_coverage": best[0], "constraint_met": True,
+                     "validation_normal_run_count": len(normals),
+                     "validation_event_run_count": len(validation_runs) - len(normals),
+                     "selection_rule": "maximum event coverage with normal run false-alert rate <= 5%"}
 
 
 ATTACK_TARGETS = {
@@ -117,7 +191,7 @@ def generate_runs(*, repeats=2, ticks=240, seed=72100,
 
     # Baseline runs are intentionally over-sampled: the anomaly detector only
     # produces a post-fire training window on its (rare) normal false alarms.
-    for _ in range(max(12, repeats * 12)):
+    for _ in range(max(12, repeats * 60)):
         add(nature="normal", scenario_type="normal", origin_layer=None,
             mode=None, stealth_level=None, severity=None, start_tick=0, duration_ticks=0)
     for kind, modes in MODES.items():
@@ -146,19 +220,23 @@ def generate_runs(*, repeats=2, ticks=240, seed=72100,
     return runs
 
 
-def detect_run(run: SimulatedRun, detector: AnomalyDetector):
+def detect_run(run: SimulatedRun, detector: AnomalyDetector, alert_policy: AlertPolicy | None = None):
     observations = FeatureExtractor(run.config).transform(run.telemetry)
     statuses = detector.predict(observations)
-    fires = [result["tick"] for result in statuses if result["combined_status"] != "normal"]
+    if alert_policy is not None:
+        first = _first_policy_fire(statuses, alert_policy)
+        fires = [first] if first is not None else []
+    else:
+        fires = [result["tick"] for result in statuses if result["combined_status"] != "normal"]
     if run.nature != "normal":
         end_tick = run.start_tick + run.duration_ticks
         fires = [tick for tick in fires if run.start_tick <= tick < end_tick]
     return min(fires) if fires else None
 
 
-def incident_sample(run: SimulatedRun, detector: AnomalyDetector):
+def incident_sample(run: SimulatedRun, detector: AnomalyDetector, alert_policy: AlertPolicy | None = None):
     """One post-fire, causal window and evaluation metadata for a complete run."""
-    fire_tick = detect_run(run, detector)
+    fire_tick = detect_run(run, detector, alert_policy)
     if fire_tick is None:
         return None
     last_tick = len(run.telemetry) - 1
@@ -166,10 +244,12 @@ def incident_sample(run: SimulatedRun, detector: AnomalyDetector):
         last_tick = min(last_tick, run.start_tick + run.duration_ticks - 1)
     infer_tick = min(last_tick, fire_tick + WINDOW_TICKS - 1)
     rows = run.telemetry[fire_tick:infer_tick + 1]
+    baseline_rows = run.telemetry[max(0, fire_tick - WINDOW_TICKS):fire_tick]
     feature_values = extract_window(rows, solar_capacity_kw=run.config.solar_capacity_kw,
                                     battery_capacity_kwh=run.config.battery_capacity_kwh,
                                     tick_seconds=run.config.tick_seconds,
-                                    communication_delay_ticks=run.config.communication_delay_ticks)
+                                    communication_delay_ticks=run.config.communication_delay_ticks,
+                                    baseline_rows=baseline_rows)
     return {"run_id": run.run_id, "seed": run.seed, "features": feature_values,
             "nature": run.nature, "origin_layer": run.origin_layer,
             "scenario_type": run.scenario_type, "mode": run.mode,

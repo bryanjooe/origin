@@ -4,7 +4,7 @@ from collections.abc import Mapping, Sequence
 import math
 
 
-FEATURE_VERSION = 1
+FEATURE_VERSION = 2
 WINDOW_TICKS = 20
 FEATURE_NAMES = (
     "auth_invalid_rate", "auth_missing_rate", "sequence_anomaly_rate",
@@ -18,7 +18,10 @@ FEATURE_NAMES = (
     "inverter_output_gap_max_scaled", "battery_soc_energy_residual_mean_scaled",
     "battery_soc_energy_residual_max_scaled", "unmet_demand_rate",
     "onset_sharpness", "signal_persistence", "goal_directed_command_rate",
-    "cross_signal_inconsistency_rate",
+    "cross_signal_inconsistency_rate", "onset_step_ratio", "persistent_signal_run",
+    "solar_primary_redundant_gap_scaled", "soc_primary_redundant_gap_scaled",
+    "auth_invalid_rate_delta", "controller_goal_alignment_rate",
+    "multi_signal_consistency_rate",
 )
 
 _FORBIDDEN = ("attack", "fault", "ground_truth", "scenario_label", "engine_record")
@@ -71,7 +74,7 @@ class SecurityWindowFeatures:
 def extract_window(rows: Sequence[dict], *, solar_capacity_kw=12.0,
                    battery_capacity_kwh=24.0, tick_seconds=60.0,
                    communication_delay_ticks=0, charge_efficiency=0.95,
-                   discharge_efficiency=0.95):
+                   discharge_efficiency=0.95, baseline_rows: Sequence[dict] = ()):
     if not rows:
         raise ValueError("At least one observable telemetry row is required")
     selected = list(rows[-WINDOW_TICKS:])
@@ -79,6 +82,7 @@ def extract_window(rows: Sequence[dict], *, solar_capacity_kw=12.0,
         _reject_hidden(row)
     solar_gaps, soc_gaps, command_residuals, inverter_gaps = [], [], [], []
     energy_residuals, ages, delays, sharpness_values, goal_commands = [], [], [], [], []
+    goal_alignments, signal_counts = [], []
     auth_invalid = auth_missing = seq = hash_bad = solar_bad = soc_bad = policy_bad = drops = unmet = 0
     cross_bad = 0
     previous = None
@@ -120,8 +124,28 @@ def extract_window(rows: Sequence[dict], *, solar_capacity_kw=12.0,
         # Cross-checks only use independently measured signals and controller
         # logs. Neither simulation engine schedule nor ground truth is read.
         cross_bad += solar_gap > 0.025 or soc_gap > 0.025 or inverter_gap > 0.05
+        signal_counts.append(sum((solar_gap > 0.025, soc_gap > 0.025,
+                                 inverter_gap > 0.05, ages[-1] > 0.5,
+                                 command_gap / max(1.0, solar_capacity_kw) > 0.05)))
+        # Preserve direction here: the paired mean/max features above encode
+        # magnitude, while signed values show which sensor is leading.
+        solar_gaps[-1] = ( _number(row, "measured_solar_kw") -
+                           _number(row, "redundant_solar_kw")) / solar_capacity_kw
+        soc_gaps[-1] = (_number(row, "measured_soc_pct") -
+                        _number(row, "redundant_soc_pct")) / 100
+        deficit = _number(row, "demand_kw") - _number(row, "measured_solar_kw")
+        goal_alignments.append(float(command * deficit >= 0 and abs(command) > 0.1))
         previous = row
     n = len(selected)
+    baseline_rows = list(baseline_rows[-WINDOW_TICKS:])
+    baseline_invalid = sum(str((row.get("security_telemetry") or {}).get(
+        "auth_tag_validity", "missing")).lower() == "invalid" for row in baseline_rows)
+    baseline_rate = baseline_invalid / len(baseline_rows) if baseline_rows else 0.0
+    current_invalid = auth_invalid / n
+    longest_signal_run, current_run = 0, 0
+    for count in signal_counts:
+        current_run = current_run + 1 if count > 0 else 0
+        longest_signal_run = max(longest_signal_run, current_run)
     features = {
         "auth_invalid_rate": auth_invalid / n,
         "auth_missing_rate": auth_missing / n,
@@ -148,6 +172,13 @@ def extract_window(rows: Sequence[dict], *, solar_capacity_kw=12.0,
         "signal_persistence": sum(value > 0.025 for value in inverter_gaps) / n,
         "goal_directed_command_rate": _mean(goal_commands),
         "cross_signal_inconsistency_rate": cross_bad / n,
+        "onset_step_ratio": max(sharpness_values, default=0.0) / max(1e-6, _mean(inverter_gaps)),
+        "persistent_signal_run": longest_signal_run / n,
+        "solar_primary_redundant_gap_scaled": _mean(solar_gaps),
+        "soc_primary_redundant_gap_scaled": _mean(soc_gaps),
+        "auth_invalid_rate_delta": current_invalid - baseline_rate,
+        "controller_goal_alignment_rate": _mean(goal_alignments),
+        "multi_signal_consistency_rate": sum(count >= 2 for count in signal_counts) / n,
     }
     if tuple(features) != FEATURE_NAMES or not all(math.isfinite(v) for v in features.values()):
         raise ValueError("Feature schema mismatch or non-finite feature")

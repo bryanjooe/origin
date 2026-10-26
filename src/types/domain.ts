@@ -138,6 +138,84 @@ export interface IncidentDetail extends IncidentSummary {
   affected_components?: string[]
   diagnostic_checks?: string[]
   residual_checks?: EvidenceItem[]
+  security_attribution?: SecurityAttribution
+}
+
+export interface AttributionObservation {
+  name: string
+  value: string | number
+  unit?: string
+  window_ticks?: number
+  category?: string
+  interpretation?: string
+}
+
+export interface SecurityAttribution {
+  available: boolean
+  nature_verdict: string
+  nature_confidence?: number | null
+  nature_candidates?: Array<{ nature: string; confidence: number }>
+  origin?: string
+  origin_confidence?: number | null
+  origin_candidates?: Array<{ layer: string; confidence: number }>
+  evidence?: {
+    points_toward_attack?: AttributionObservation[]
+    points_toward_fault?: AttributionObservation[]
+    ambiguous?: AttributionObservation[]
+    statement?: string
+    uncertainty?: string | null
+  }
+  reason?: string
+  inference_tick?: number
+  window_ticks?: number
+}
+
+export interface SecurityClassMetric {
+  precision?: number
+  recall?: number
+  'f1-score'?: number
+  support?: number
+}
+
+export interface SecurityTaskReport {
+  count?: number
+  accuracy?: number
+  macro_f1?: number
+  per_class?: Record<string, SecurityClassMetric>
+  confusion_matrix?: { labels: string[]; counts: number[][] }
+}
+
+export interface SecurityProtocolReport {
+  nature?: SecurityTaskReport
+  fault_vs_attack?: SecurityTaskReport
+  origin?: SecurityTaskReport
+  detector_coverage?: number
+  attack_detection_delay_ticks?: { mean?: number }
+  abstention_rate?: { nature?: number; origin?: number }
+  nature_probability_calibration?: { brier_score?: number; expected_calibration_error?: number }
+  nature_feature_importance_by_stealth?: Record<string, Array<{ feature: string; importance: number }>>
+  model_selection?: { selected?: string; validation_macro_f1?: Record<string, number> }
+  nature_recall_by_stealth?: Record<string, { attack_label_rate?: number; detector_fire_rate?: number; run_count?: number }>
+  nature_recall_by_attack_type?: Record<string, { attack_label_rate?: number; detector_fire_rate?: number; run_count?: number }>
+  fault_only_origin_comparison?: {
+    existing_source_classifier?: { macro_f1_including_unknown?: number; coverage?: number; evaluated_fault_runs?: number }
+    new_origin_layer_classifier?: { macro_f1_including_unknown?: number; coverage?: number; evaluated_fault_runs?: number }
+  }
+  normal_run_false_positive_rate?: { detector_fire?: number; nature_classifier_attack_label?: number; normal_run_count?: number }
+  validation_alert_calibration?: { validation_normal_false_alert_rate?: number; validation_event_coverage?: number; selection_rule?: string }
+}
+
+export interface SecurityMetrics {
+  available: boolean
+  provenance?: string
+  run_count?: number
+  class_run_counts?: Record<string, number>
+  held_out?: SecurityProtocolReport
+  stealth_generalization?: SecurityProtocolReport
+  model_error?: string | null
+  results_error?: string
+  confidence_kind?: string | null
+  calibration_note?: string | null
 }
 
 export interface IncidentGraph {

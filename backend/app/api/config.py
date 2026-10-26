@@ -11,6 +11,8 @@ class ServerSettings:
     database_path: Path | str = ROOT / "outputs/server/greengrid.sqlite3"
     anomaly_model: Path | None = ROOT / "outputs/stage2/anomaly.joblib"
     source_model: Path | None = ROOT / "outputs/stage3/source_classifier.joblib"
+    security_model: Path | None = ROOT / "outputs/stage5/held_out_fault_attack_origin.joblib"
+    security_results_dir: Path = ROOT / "outputs/stage5"
     max_ticks: int = 10000
 
     @classmethod
@@ -22,4 +24,6 @@ class ServerSettings:
         return cls(database_path=os.environ.get(
                        "ORIGIN_DATABASE", os.environ.get("TRACEX_DATABASE", str(cls.database_path))),
                    anomaly_model=path("ORIGIN_ANOMALY_MODEL", cls.anomaly_model),
-                   source_model=path("ORIGIN_SOURCE_MODEL", cls.source_model))
+                   source_model=path("ORIGIN_SOURCE_MODEL", cls.source_model),
+                   security_model=path("ORIGIN_SECURITY_MODEL", cls.security_model),
+                   security_results_dir=path("ORIGIN_SECURITY_RESULTS", cls.security_results_dir))

@@ -4,6 +4,7 @@ from collections import defaultdict
 
 import numpy as np
 from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.inspection import permutation_importance
 
 from app.localization import LocalizationFeatureExtractor, SourceLocalizer
 from .dataset import incident_sample
@@ -23,7 +24,36 @@ def _classification(truth, predicted, labels):
             "macro_f1": report["macro avg"]["f1-score"]}
 
 
-def evaluate(models, runs, detector, *, source_model_path=None):
+def unalerted_run_output():
+    """A trained detector with no alert contributes the operational Normal state."""
+    return {"nature": "Normal", "nature_confidence": None,
+            "origin": "Unknown", "origin_confidence": None}
+
+
+def _calibration_metrics(model, samples, classes):
+    if not samples:
+        return {"brier_score": None, "expected_calibration_error_10_bins": None, "count": 0}
+    y = [item["nature"] for item in samples]
+    x = np.asarray([[item["features"][name] for name in model.metadata["feature_names"]]
+                    for item in samples], dtype=float)
+    probabilities = model.nature_model.predict_proba(x)
+    ordered = list(model.nature_model.classes_)
+    indices = [ordered.index(label) for label in classes]
+    p = probabilities[:, indices]
+    one_hot = np.asarray([[int(label == actual) for label in classes] for actual in y], dtype=float)
+    brier = float(np.mean(np.sum((p - one_hot) ** 2, axis=1)))
+    confidence = p.max(axis=1)
+    correct = np.asarray([classes[int(index)] == actual for index, actual in zip(p.argmax(axis=1), y)])
+    ece = 0.0
+    for lower in np.linspace(0, 0.9, 10):
+        mask = (confidence >= lower) & (confidence < lower + 0.1)
+        if mask.any():
+            ece += float(mask.mean() * abs(confidence[mask].mean() - correct[mask].mean()))
+    return {"brier_score": brier, "expected_calibration_error_10_bins": float(ece),
+            "count": len(samples), "method": "held-out run-level reliability; lower is better"}
+
+
+def evaluate(models, runs, detector, *, source_model_path=None, alert_policy=None):
     if models.nature_model is None or models.origin_model is None:
         raise RuntimeError("Stage B classifiers are not available")
     if not runs:
@@ -33,7 +63,7 @@ def evaluate(models, runs, detector, *, source_model_path=None):
         raise ValueError("Held-out runs overlap training runs or seeds")
     samples, missed = {}, []
     for run in runs:
-        item = incident_sample(run, detector)
+        item = incident_sample(run, detector, alert_policy)
         if item is None:
             missed.append(run)
         else:
@@ -43,9 +73,7 @@ def evaluate(models, runs, detector, *, source_model_path=None):
     nature_rows = []
     for run in runs:
         sample = samples.get(run.run_id)
-        output = (models.predict_features(sample["features"]) if sample else
-                  {"nature": "Undetermined", "nature_confidence": None,
-                   "origin": "Unknown", "origin_confidence": None})
+        output = models.predict_features(sample["features"]) if sample else unalerted_run_output()
         nature_true = NATURE_DISPLAY[run.nature]
         truth.append(nature_true)
         predicted.append(output["nature"])
@@ -127,11 +155,31 @@ def evaluate(models, runs, detector, *, source_model_path=None):
                 "evaluated_fault_runs": len(baseline_truth)}
         except Exception as error:
             source_report = {"available": False, "reason": f"{type(error).__name__}: {error}"}
+    stealth_importance = {}
+    run_by_id = {run.run_id: run for run in runs}
+    for level in sorted({run.stealth_level for run in runs
+                         if run.nature == "attack" and run.stealth_level}):
+        subset = [item for run_id, item in samples.items()
+                  if (run_by_id[run_id].nature == "fault" or
+                      (run_by_id[run_id].nature == "attack" and run_by_id[run_id].stealth_level == level))]
+        if len(subset) < 8 or {item["nature"] for item in subset} != {"fault", "attack"}:
+            stealth_importance[level] = []
+            continue
+        x = np.asarray([[item["features"][feature] for feature in models.metadata["feature_names"]]
+                        for item in subset])
+        y = np.asarray([item["nature"] for item in subset])
+        result = permutation_importance(models.nature_model, x, y, scoring="f1_macro",
+            n_repeats=4, random_state=42, n_jobs=1)
+        names = models.metadata["feature_names"]
+        stealth_importance[level] = [{"feature": names[index], "importance": float(value)}
+            for index, value in sorted(enumerate(result.importances_mean),
+                                       key=lambda pair: (-pair[1], pair[0]))]
     return {"provenance": "synthetic simulation held-out complete runs",
             "window_rule": "first detector fire, then causal 20-tick window; no future telemetry",
             "held_out_run_count": len(runs), "detected_run_count": len(samples),
             "detector_miss_count": len(missed),
             "detector_coverage": len(samples) / len(runs),
+            "alert_policy": (vars(alert_policy) if alert_policy else {"mode": "legacy any warning or residual"}),
             "nature": nature_report,
             "fault_vs_attack": nature_binary_report,
             "origin": origin_report,
@@ -146,6 +194,9 @@ def evaluate(models, runs, detector, *, source_model_path=None):
             "abstention_rate": {"nature": predicted.count("Undetermined") / len(predicted),
                                 "origin": origin_predicted.count("Unknown") / len(origin_predicted)
                                 if origin_predicted else None},
+            "nature_probability_calibration": _calibration_metrics(models, list(samples.values()),
+                                                                      list(NATURE_CLASSES)),
+            "nature_feature_importance_by_stealth": stealth_importance,
             "attack_detection_delay_ticks": {
                 "mean_on_detected_attacks": float(np.mean(detected_attack)) if detected_attack else None,
                 "missed_attack_rate": (all_attack_runs - len(detected_attack)) / all_attack_runs

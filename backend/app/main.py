@@ -170,6 +170,7 @@ def create_app(settings: ServerSettings | None = None):
             report = service.store.incident(incident_id)
             if report is None:
                 raise HTTPException(404, "Incident not found")
+            report["security_attribution"] = service.security_attribution(report)
             return ok(report)
 
     @app.get("/api/incidents/{incident_id}/graph", response_model=Envelope)
@@ -182,6 +183,12 @@ def create_app(settings: ServerSettings | None = None):
         service = runtime(request)
         async with service.lock:
             return ok({"run_id": service.run_id, **service.sustainability()})
+
+    @app.get("/api/security/metrics", response_model=Envelope)
+    async def security_metrics(request: Request):
+        service = runtime(request)
+        async with service.lock:
+            return ok(service.models.security_metrics())
 
     @app.get("/api/model/metrics", response_model=Envelope)
     async def model_metrics(request: Request):

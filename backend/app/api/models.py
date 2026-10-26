@@ -10,11 +10,13 @@ from app.fault_injection import Fault
 from app.localization import SourceLocalizer
 from app.localization.dataset import partition_runs
 from app.localization.evaluation import evaluate as evaluate_source
+from app.security_analysis import AttributionModels
 
 
 class ModelRegistry:
     def __init__(self, settings):
         self.detector = self.localizer = None
+        self.security_analyzer = None
         self.errors, self.fingerprints, self.reports, self.report_errors = {}, {}, {}, {}
         for name, path, loader in (("anomaly", settings.anomaly_model, AnomalyDetector.load),
                                    ("source", settings.source_model, SourceLocalizer.load)):
@@ -44,9 +46,50 @@ class ModelRegistry:
             except Exception as error:
                 self.report_errors[name] = f"{type(error).__name__}: {error}"
 
+        self.security_results_dir = Path(settings.security_results_dir)
+        self.security_error = None
+        self.security_policy = None
+        try:
+            if settings.security_model is None:
+                raise FileNotFoundError("Security classifier path is not configured")
+            security_path = Path(settings.security_model)
+            self.security_analyzer = AttributionModels.load(security_path)
+            self.fingerprints["security_attribution"] = hashlib.sha256(security_path.read_bytes()).hexdigest()
+            evaluation_path = self.security_results_dir / "held_out_evaluation.json"
+            if evaluation_path.exists():
+                policy_data = json.loads(evaluation_path.read_text(encoding="utf-8")).get("alert_policy", {})
+                from app.security_analysis.dataset import AlertPolicy
+                self.security_policy = AlertPolicy(**policy_data)
+        except Exception as error:
+            self.security_error = f"{type(error).__name__}: {error}"
+
     def availability(self):
         return {"anomaly": {"available": self.detector is not None, "error": self.errors.get("anomaly")},
-                "source": {"available": self.localizer is not None, "error": self.errors.get("source")}}
+                "source": {"available": self.localizer is not None, "error": self.errors.get("source")},
+                "security_attribution": {"available": self.security_analyzer is not None,
+                                          "error": self.security_error}}
+
+    def security_metrics(self):
+        """Serve checked-in-at-runtime synthetic evaluation artifacts, if present."""
+        try:
+            import json
+            metadata = json.loads((self.security_results_dir / "metadata.json").read_text(encoding="utf-8"))
+            held_out = json.loads((self.security_results_dir / "held_out_evaluation.json").read_text(encoding="utf-8"))
+            stealth = json.loads((self.security_results_dir / "stealth_generalization_evaluation.json").read_text(encoding="utf-8"))
+            return {"available": self.security_analyzer is not None,
+                    "model_error": self.security_error,
+                    "provenance": metadata.get("provenance", "synthetic simulations only"),
+                    "run_count": metadata.get("run_count"),
+                    "class_run_counts": metadata.get("class_run_counts"),
+                    "held_out": held_out,
+                    "stealth_generalization": stealth,
+                    "confidence_kind": self.security_analyzer.metadata.get("confidence_kind") if self.security_analyzer else None,
+                    "calibration_note": self.security_analyzer.metadata.get("calibration_note") if self.security_analyzer else None}
+        except (OSError, ValueError, KeyError) as error:
+            return {"available": self.security_analyzer is not None,
+                    "model_error": self.security_error,
+                    "results_error": f"{type(error).__name__}: {error}",
+                    "provenance": "synthetic simulations only"}
 
     def evaluate(self, profile):
         reports = {}
