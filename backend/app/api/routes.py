@@ -17,6 +17,9 @@ from .incident_service import IncidentService
 from .schemas import (
     AdvanceInput,
     AdvanceResponse,
+    AnalysisJobResponse,
+    AnalysisResultResponse,
+    AnalysisSubmissionInput,
     ControllerLogsResponse,
     CorrectionResponse,
     DownstreamResponse,
@@ -65,6 +68,12 @@ def get_incident_service(request: Request) -> IncidentService:
     if not getattr(request.app.state, "persistence_ready", False):
         raise APIError(503, "not_ready", "API services are not ready.")
     return request.app.state.incident_service
+
+
+def get_analysis_coordinator(request: Request):
+    if not getattr(request.app.state, "persistence_ready", False):
+        raise APIError(503, "not_ready", "API services are not ready.")
+    return request.app.state.analysis_coordinator
 
 
 def _uuid(value: UUID) -> str:
@@ -118,6 +127,57 @@ def get_run_status(
     service: SimulationService = Depends(get_service),
 ) -> dict:
     return service.status(_uuid(run_id))
+
+
+@router.post(
+    "/runs/{run_id}/analyses",
+    response_model=AnalysisJobResponse,
+    status_code=202,
+    tags=["analysis"],
+)
+def submit_analysis(
+    run_id: UUID,
+    payload: AnalysisSubmissionInput,
+    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
+    coordinator=Depends(get_analysis_coordinator),
+) -> dict:
+    return coordinator.submit_run_analysis(
+        run_id=str(run_id),
+        start_tick=payload.start_tick,
+        end_tick=payload.end_tick,
+        idempotency_key=idempotency_key,
+    )
+
+
+@router.get(
+    "/analyses/{analysis_id}",
+    response_model=AnalysisResultResponse,
+    tags=["analysis"],
+)
+def get_analysis(
+    analysis_id: UUID,
+    request: Request,
+) -> dict:
+    if not getattr(request.app.state, "persistence_ready", False):
+        raise APIError(503, "not_ready", "API services are not ready.")
+    record = request.app.state.analysis_service.get(str(analysis_id))
+    return {
+        "analysis_id": record["id"],
+        "simulation_run_id": record["simulation_run_id"],
+        "incident_id": record["incident_id"],
+        "status": record["status"],
+        "provider_name": record["provider_name"],
+        "model_name": record["model_name"],
+        "model_version": record["model_version"],
+        "schema_version": record["schema_version"],
+        "result": record["validated_output"],
+        "failure_code": record["failure_code"],
+        "failure_message": record["failure_message"],
+        "created_at": record["created_at"],
+        "updated_at": record["updated_at"],
+        "started_at": record["started_at"],
+        "completed_at": record["completed_at"],
+    }
 
 
 @router.post(

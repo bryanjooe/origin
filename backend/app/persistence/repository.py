@@ -6,6 +6,7 @@ from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from .models import (
@@ -364,25 +365,46 @@ class SQLAlchemyRepository:
         model_version: str | None,
         schema_version: str,
         validated_output: dict | None,
+        idempotency_key: str | None = None,
+        input_sha256: str | None = None,
+        provider_name: str | None = None,
         failure_code: str | None = None,
         failure_message: str | None = None,
-    ) -> str:
-        with self.sessions.begin() as session:
-            record = AIAnalysisRecord(
-                id=analysis_id,
-                simulation_run_id=run_id,
-                incident_id=incident_id,
-                status=status,
-                model_name=model_name,
-                model_version=model_version,
-                schema_version=schema_version,
-                validated_output=validated_output,
-                failure_code=failure_code,
-                failure_message=failure_message,
-                completed_at=datetime.now(timezone.utc) if status == "completed" else None,
-            )
-            session.add(record)
-        return analysis_id
+    ) -> tuple[str, bool]:
+        try:
+            with self.sessions.begin() as session:
+                record = AIAnalysisRecord(
+                    id=analysis_id,
+                    simulation_run_id=run_id,
+                    incident_id=incident_id,
+                    status=status,
+                    model_name=model_name,
+                    model_version=model_version,
+                    provider_name=provider_name,
+                    schema_version=schema_version,
+                    validated_output=validated_output,
+                    idempotency_key=idempotency_key,
+                    input_sha256=input_sha256,
+                    failure_code=failure_code,
+                    failure_message=failure_message,
+                    completed_at=datetime.now(timezone.utc) if status == "completed" else None,
+                )
+                session.add(record)
+            return analysis_id, True
+        except IntegrityError:
+            if idempotency_key is None:
+                raise
+            with self.sessions() as session:
+                existing = session.scalar(select(AIAnalysisRecord).where(
+                    AIAnalysisRecord.idempotency_key == idempotency_key
+                ))
+                if existing is None:
+                    raise
+                if existing.input_sha256 != input_sha256:
+                    raise AnalysisIdempotencyConflict(
+                        "Idempotency key was already used for different analysis input."
+                    )
+                return existing.id, False
 
     def update_analysis(self, analysis_id: str, changes: dict) -> bool:
         with self.sessions.begin() as session:
@@ -391,6 +413,8 @@ class SQLAlchemyRepository:
                 return False
             for key, value in changes.items():
                 setattr(record, key, value)
+            if record.status == "running" and record.started_at is None:
+                record.started_at = datetime.now(timezone.utc)
             record.updated_at = datetime.now(timezone.utc)
             if record.status == "completed":
                 record.completed_at = record.updated_at
@@ -409,14 +433,30 @@ class SQLAlchemyRepository:
                 "status": record.status,
                 "model_name": record.model_name,
                 "model_version": record.model_version,
+                "provider_name": record.provider_name,
                 "schema_version": record.schema_version,
                 "validated_output": record.validated_output,
                 "failure_code": record.failure_code,
                 "failure_message": record.failure_message,
                 "created_at": _iso(record.created_at),
                 "updated_at": _iso(record.updated_at),
+                "started_at": _iso(record.started_at),
                 "completed_at": _iso(record.completed_at),
             }
+
+    def fail_interrupted_analyses(self) -> None:
+        """Mark in-process jobs from a prior server process as interrupted."""
+        with self.sessions.begin() as session:
+            session.execute(
+                update(AIAnalysisRecord)
+                .where(AIAnalysisRecord.status.in_(("pending", "running")))
+                .values(
+                    status="failed",
+                    failure_code="worker_interrupted",
+                    failure_message="Analysis worker stopped before completion.",
+                    updated_at=datetime.now(timezone.utc),
+                )
+            )
 
     @staticmethod
     def _add_fault(
@@ -498,3 +538,7 @@ class SQLAlchemyRepository:
             "created_at": _iso(record.created_at),
             "updated_at": _iso(record.updated_at),
         }
+
+
+class AnalysisIdempotencyConflict(ValueError):
+    """A client reused an idempotency key for a different frozen input window."""

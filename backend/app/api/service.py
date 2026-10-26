@@ -14,7 +14,9 @@ from app.fault_injection.engine import MODES
 from app.simulator import GridConfig, MicrogridSimulator
 
 from .errors import APIError
-from .schemas import TelemetryRow
+from app.ai.contracts import InferenceControllerLog, InferenceTelemetryRow
+
+from .schemas import ControllerLog, TelemetryRow
 from app.persistence.artifacts import FileArtifactStore
 from app.persistence.repository import SQLAlchemyRepository
 
@@ -436,6 +438,38 @@ class SimulationService:
         )
         logs = [{key: row[key] for key in keys} for row in rows]
         return {"run_id": run.run_id, "start_tick": start_tick, "end_tick": resolved_end, "logs": logs}
+
+    def analysis_snapshot(
+        self, run_id: str, start_tick: int, end_tick: int | None
+    ) -> dict:
+        """Freeze an observed-only input window; typed allowlists exclude simulator truth."""
+        run, resolved_end, rows = self._read_range(
+            run_id, start_tick, end_tick, MAX_PAGE_TICKS
+        )
+        if start_tick >= resolved_end:
+            raise APIError(
+                422,
+                "invalid_analysis_window",
+                "Analysis requires a non-empty tick window already available in the run.",
+            )
+        # Do not forward the full API telemetry DTO: it includes simulator-only
+        # physical state and oracle channels that a field model would not observe.
+        telemetry_fields = InferenceTelemetryRow.model_fields.keys()
+        controller_fields = InferenceControllerLog.model_fields.keys()
+        telemetry = [
+            InferenceTelemetryRow.model_validate({key: row[key] for key in telemetry_fields})
+            for row in rows
+        ]
+        logs = [
+            InferenceControllerLog.model_validate({key: row[key] for key in controller_fields})
+            for row in rows
+        ]
+        return {
+            "simulation_run_id": run.run_id,
+            "window": {"start_tick": start_tick, "end_tick": resolved_end},
+            "telemetry": [row.model_dump(mode="json") for row in telemetry],
+            "controller_logs": [row.model_dump(mode="json") for row in logs],
+        }
 
     def export_metadata(self, run_id: str) -> dict:
         run = self._get_run(run_id)

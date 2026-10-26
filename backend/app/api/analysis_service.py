@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from app.persistence.repository import SQLAlchemyRepository
+from app.persistence.repository import AnalysisIdempotencyConflict, SQLAlchemyRepository
 
 from .errors import APIError
 from .schemas import AIAnalysisOutput
@@ -34,9 +34,48 @@ class AIAnalysisService:
         )
         return analysis_id
 
-    def mark_running(self, analysis_id: str, model_name: str | None = None, model_version: str | None = None) -> None:
+    def create_pending_idempotent(
+        self,
+        *,
+        simulation_run_id: str | None = None,
+        incident_id: str | None = None,
+        idempotency_key: str,
+        input_sha256: str,
+    ) -> tuple[str, bool]:
+        if simulation_run_id is None and incident_id is None:
+            raise APIError(422, "analysis_context_required", "An analysis must reference a run or incident.")
+        analysis_id = str(uuid4())
+        try:
+            return self.repository.create_analysis(
+                analysis_id=analysis_id,
+                run_id=simulation_run_id,
+                incident_id=incident_id,
+                status="pending",
+                model_name=None,
+                model_version=None,
+                schema_version="1",
+                validated_output=None,
+                idempotency_key=idempotency_key,
+                input_sha256=input_sha256,
+            )
+        except AnalysisIdempotencyConflict as exc:
+            raise APIError(
+                409,
+                "idempotency_key_reused",
+                "This Idempotency-Key was already used for different analysis input.",
+            ) from exc
+
+    def mark_running(
+        self,
+        analysis_id: str,
+        *,
+        provider_name: str | None = None,
+        model_name: str | None = None,
+        model_version: str | None = None,
+    ) -> None:
         self._update(analysis_id, {
             "status": "running",
+            "provider_name": provider_name,
             "model_name": model_name,
             "model_version": model_version,
             "validated_output": None,
@@ -49,12 +88,14 @@ class AIAnalysisService:
         analysis_id: str,
         output: AIAnalysisOutput | dict,
         *,
+        provider_name: str | None = None,
         model_name: str | None = None,
         model_version: str | None = None,
     ) -> None:
         validated = AIAnalysisOutput.model_validate(output)
         self._update(analysis_id, {
             "status": "completed",
+            "provider_name": provider_name,
             "model_name": model_name,
             "model_version": model_version,
             "schema_version": validated.schema_version,

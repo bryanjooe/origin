@@ -3,14 +3,16 @@
 Software-only renewable microgrid fault-localization project. Stage 1 provides the
 physical simulator, deterministic fault injection, timestamped communication,
 controller logs, dependency topology, and offline exports. Stage 2 adds a versioned
-FastAPI layer with PostgreSQL persistence for runs, incidents, and result metadata.
-There is still no trained model, anomaly detector, or dashboard. No AI predictions or
-performance metrics are produced.
+FastAPI layer with PostgreSQL persistence for runs, incidents, and result metadata,
+plus a provider-independent integration contract for a separately developed AI
+component. No team model is currently connected, so no AI predictions, anomaly
+detector, dashboard, or performance metrics are produced.
 
 ## Setup
 
-Python 3.11 or 3.12, no hardware, external APIs, or paid services. Installation needs
-PyPI access; simulation and tests run offline after installation.
+Python 3.11 or 3.12. The simulator requires no hardware, external API, or paid
+service. An optional AI adapter can connect to a separately deployed model service.
+Installation needs PyPI access; simulation and tests run offline after installation.
 
 ```powershell
 python -m venv .venv

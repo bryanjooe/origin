@@ -413,8 +413,44 @@ class AIAnalysisOutput(StrictModel):
         for finding in self.findings:
             if finding.component not in known_components:
                 raise ValueError("finding references an unknown component")
-            if any("ground_truth" in ref.lower() or "fault_scenario" in ref.lower()
-                   for ref in finding.evidence_refs):
+            forbidden_reference_terms = (
+                "ground_truth", "fault_scenario", "fault_schedule",
+                "fault_type", "fault_mode", "fault_severity",
+            )
+            if any(
+                term in ref.lower()
+                for ref in finding.evidence_refs
+                for term in forbidden_reference_terms
+            ):
                 raise ValueError("AI evidence references cannot point to scenario ground truth")
         return self
+
+
+class AnalysisSubmissionInput(StrictModel):
+    start_tick: StrictInt = Field(default=0, ge=0)
+    end_tick: StrictInt | None = Field(default=None, ge=0)
+
+
+class AnalysisJobResponse(StrictModel):
+    analysis_id: str
+    status: Literal["pending", "running", "completed", "failed"]
+    status_path: str
+
+
+class AnalysisResultResponse(StrictModel):
+    analysis_id: str
+    simulation_run_id: str | None
+    incident_id: str | None
+    status: Literal["pending", "running", "completed", "failed"]
+    provider_name: str | None
+    model_name: str | None
+    model_version: str | None
+    schema_version: str
+    result: AIAnalysisOutput | None
+    failure_code: str | None
+    failure_message: str | None
+    created_at: str
+    updated_at: str
+    started_at: str | None
+    completed_at: str | None
 

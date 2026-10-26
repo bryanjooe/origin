@@ -8,6 +8,9 @@ from uuid import uuid4
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.ai.contracts import AnalysisProvider
+from app.ai.jobs import AnalysisJobCoordinator
+from app.ai.provider import HTTPAnalysisProvider, UnavailableAnalysisProvider
 from .config import APISettings
 from .analysis_service import AIAnalysisService
 from .errors import install_exception_handlers
@@ -24,6 +27,7 @@ def create_app(
     service: SimulationService | None = None,
     database: Database | None = None,
     artifact_store: FileArtifactStore | None = None,
+    analysis_provider: AnalysisProvider | None = None,
 ) -> FastAPI:
     api_settings = settings or APISettings.from_env()
 
@@ -32,11 +36,30 @@ def create_app(
     repository = service.repository if service is not None else SQLAlchemyRepository(api_database.session_factory)
     store = artifact_store or FileArtifactStore(api_settings.data_dir)
     api_service = service or SimulationService(repository, store)
+    analysis_service = AIAnalysisService(repository)
+    provider = analysis_provider or (
+        HTTPAnalysisProvider(
+            base_url=api_settings.ai_service_url,
+            api_key=api_settings.ai_service_api_key,
+            timeout_seconds=api_settings.ai_timeout_seconds,
+            max_retries=api_settings.ai_max_retries,
+        )
+        if api_settings.ai_service_url
+        else UnavailableAnalysisProvider()
+    )
+    analysis_coordinator = AnalysisJobCoordinator(
+        simulation_service=api_service,
+        analysis_service=analysis_service,
+        provider=provider,
+        max_workers=api_settings.ai_workers,
+        max_queue=api_settings.ai_queue_size,
+    )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         try:
             repository.check_ready()
+            repository.fail_interrupted_analyses()
             api_service.restore()
             app.state.persistence_ready = True
         except Exception:
@@ -44,12 +67,16 @@ def create_app(
             logging.getLogger("tracex.api").error("Persistence is not ready; apply migrations and check the database.")
             app.state.persistence_ready = False
         yield
+        analysis_coordinator.shutdown()
         if owns_database:
             api_database.dispose()
 
     app = FastAPI(
         title="TraceX GreenGrid API",
-        description="Persistent microgrid simulation API. No AI inference is provided.",
+        description=(
+            "Persistent microgrid simulation API with a provider-independent AI adapter. "
+            "Real inference is available only when the separately developed provider is configured."
+        ),
         version="1.0.0",
         lifespan=lifespan,
     )
@@ -58,7 +85,8 @@ def create_app(
     app.state.repository = repository
     app.state.service = api_service
     app.state.incident_service = IncidentService(repository)
-    app.state.analysis_service = AIAnalysisService(repository)
+    app.state.analysis_service = analysis_service
+    app.state.analysis_coordinator = analysis_coordinator
     app.state.persistence_ready = False
 
     @app.middleware("http")
@@ -75,7 +103,7 @@ def create_app(
             allow_origins=list(api_settings.cors_origins),
             allow_credentials=False,
             allow_methods=["GET", "POST", "OPTIONS"],
-            allow_headers=["Authorization", "Content-Type"],
+            allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
         )
 
     install_exception_handlers(app)

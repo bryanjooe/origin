@@ -38,6 +38,11 @@ running.
 | `TRACEX_DATA_DIR` | Managed artifact root. Defaults to `./data`; keep it on durable storage and outside public web roots. |
 | `TRACEX_EXPORT_API_KEY` | Server-side bearer key required for result downloads. If unset, downloads return 503. |
 | `TRACEX_INCIDENT_API_KEY` | Independent bearer key required for incident CRUD. If unset, incident routes return 503. |
+| `TRACEX_AI_SERVICE_URL` | Optional separately deployed model service base URL. Unset disables inference and produces failed `provider_unavailable` jobs. |
+| `TRACEX_AI_SERVICE_API_KEY` | Optional bearer credential sent only to the configured AI provider. |
+| `TRACEX_AI_TIMEOUT_SECONDS` | Per-call timeout; defaults to 10 seconds and is capped at 120. |
+| `TRACEX_AI_MAX_RETRIES` | Bounded retries for transient transport errors, HTTP 408/429, and 5xx; defaults to 1 and is capped at 3. |
+| `TRACEX_AI_WORKERS`, `TRACEX_AI_QUEUE_SIZE` | In-process analysis worker and queue bounds; defaults to 2 workers and 8 queued jobs. |
 
 The API returns `Authorization: Bearer <key>` credentials only as request headers;
 they are never echoed in responses. Store the key in the server environment or a
@@ -70,6 +75,8 @@ All application routes are under `/api/v1`.
 | `GET /fault-types` | Existing families/modes and the simulator's severity, duration, and start-tick constraints. |
 | `POST /runs` | Create a run with optional complete `GridConfig` fields, integer seed, and optional initial fault schedule. Returns 201. |
 | `GET /runs/{run_id}` | Run status, current tick, config, timestamps, and bounds. |
+| `POST /runs/{run_id}/analyses` | Submit an asynchronous analysis of an available tick window; requires an `Idempotency-Key`; returns 202 and an analysis job ID. |
+| `GET /analyses/{analysis_id}` | Retrieve job status, timestamps, model metadata, sanitized failure or validated result. |
 | `POST /runs/{run_id}/advance` | Advance 1–1,000 ticks synchronously in the server worker pool. A run is capped at 10,000 total ticks. |
 | `POST /runs/{run_id}/fault-schedules` | Add a fault at or after the current tick. Uses existing validation and rejects overlapping schedules. |
 | `POST /runs/{run_id}/correct` | Apply the simulator's correction semantics at the current serialized boundary. |
@@ -137,12 +144,23 @@ compact structured database metadata. API responses never expose absolute paths.
 The database stores no incident severity scale because none exists in the project;
 `priority` and `category` remain caller-supplied text. AI analysis records distinguish
 no record (missing), `pending`, `running`, `failed`, and `completed`. Completed output
-passes a typed schema validator before persistence. No inference implementation or
-predictions are included.
+passes a typed schema validator before persistence. No model from the AI team is
+present in this repository; use the documented adapter contract in
+`docs/ai-integration.md`. When no AI provider is configured, analysis jobs fail with
+`provider_unavailable`, and no prediction is fabricated.
 
 Incident evidence rejects reserved ground-truth field names recursively and is size
 bounded. The analysis service accepts only the typed analysis output contract. It has
 no method that reads fault scenario tables as inference input.
+
+The provider-independent input adapter sends only a typed telemetry window and
+matching controller-log projection, capped at 2,000 ticks and frozen at submission.
+Ground truth, hidden labels, fault schedules, simulator events, and future ticks are
+excluded. Analysis work runs in a bounded in-process worker pool and is idempotent via
+the required `Idempotency-Key`. A restart marks unfinished in-process jobs failed.
+Provider credentials and retry/timeout/queue limits use `TRACEX_AI_*` environment
+settings; see `docs/ai-integration.md` for schemas, retries, and unresolved team
+interface decisions.
 
 ## Concurrency and persistence boundaries
 

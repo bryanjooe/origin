@@ -86,7 +86,7 @@ def test_alembic_migration_creates_schema_without_destructive_downgrade(tmp_path
         "ai_analysis_records",
     }.issubset(tables)
     with engine.connect() as connection:
-        assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "0001_initial"
+        assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "0002_ai_integration"
     engine.dispose()
 
 

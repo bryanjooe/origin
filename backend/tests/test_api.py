@@ -34,11 +34,11 @@ class ManagedTestClient(TestClient):
 
 def make_client(
     *, export_api_key="test-secret", incident_api_key="incident-secret", origins=(),
-    raise_server_exceptions=True,
+    raise_server_exceptions=True, analysis_provider=None,
 ):
     temp_directory = tempfile.TemporaryDirectory(prefix="tracex-api-test-")
     root = Path(temp_directory.name)
-    database = Database("sqlite+pysqlite:///:memory:")
+    database = Database(f"sqlite+pysqlite:///{(root / 'api.sqlite').as_posix()}")
     Base.metadata.create_all(database.engine)
     repository = SQLAlchemyRepository(database.session_factory)
     artifact_store = FileArtifactStore(root / "artifacts")
@@ -54,6 +54,7 @@ def make_client(
         service=service,
         database=database,
         artifact_store=artifact_store,
+        analysis_provider=analysis_provider,
     )
     return ManagedTestClient(
         app, database, temp_directory,

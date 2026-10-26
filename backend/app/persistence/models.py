@@ -202,6 +202,7 @@ class AIAnalysisRecord(Base):
             "status != 'completed' OR validated_output IS NOT NULL",
             name="ck_ai_analysis_completed_output",
         ),
+        Index("uq_ai_analysis_idempotency_key", "idempotency_key", unique=True),
         Index("ix_ai_analysis_run_status", "simulation_run_id", "status"),
         Index("ix_ai_analysis_incident_status", "incident_id", "status"),
     )
@@ -216,12 +217,16 @@ class AIAnalysisRecord(Base):
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
     model_name: Mapped[str | None] = mapped_column(String(120))
     model_version: Mapped[str | None] = mapped_column(String(120))
+    provider_name: Mapped[str | None] = mapped_column(String(120))
     schema_version: Mapped[str] = mapped_column(String(32), nullable=False, default="1")
     validated_output: Mapped[dict | None] = mapped_column(JSON_VALUE)
+    idempotency_key: Mapped[str | None] = mapped_column(String(128))
+    input_sha256: Mapped[str | None] = mapped_column(String(64))
     failure_code: Mapped[str | None] = mapped_column(String(80))
     failure_message: Mapped[str | None] = mapped_column(String(500))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     run: Mapped[SimulationRunRecord | None] = relationship(back_populates="analyses")

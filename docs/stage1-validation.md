@@ -43,5 +43,7 @@ matching final SOC. Outputs are saved locally in `outputs/normal` and
 `outputs/inverter`, each containing telemetry CSV/JSON, topology JSON, and a separate
 scenario-truth file retaining the correction tick.
 
-Stages 2–7 were not started. No anomaly-detection or localization accuracy is
-claimed. No API, frontend or persistence behavior is implied by these tests.
+At the time of this Stage 1 validation, later stages had not started. The current
+repository subsequently added a FastAPI backend and persistence layer; see
+`docs/api.md` and `PROJECT_STATUS.md`. No anomaly-detection or localization accuracy
+is claimed by the Stage 1 tests. They do not validate API or persistence behavior.
