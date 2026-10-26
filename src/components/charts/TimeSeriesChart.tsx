@@ -1,0 +1,59 @@
+import { useMemo } from 'react'
+import {
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
+import type { TelemetryPoint } from '../../types/domain'
+import { EmptyState } from '../ui'
+
+export interface ChartSeries {
+  key: keyof TelemetryPoint | string
+  label: string
+  color: string
+}
+
+export function TimeSeriesChart({
+  data,
+  series,
+  unit,
+  height = 240,
+}: {
+  data: TelemetryPoint[]
+  series: ChartSeries[]
+  unit: string
+  height?: number
+}) {
+  const chartData = useMemo(() => data.slice(-360).map((point, index) => ({
+    ...point,
+    __index: index,
+    __time: point.timestamp ?? point.time ?? (typeof point.simulation_time === 'string' ? point.simulation_time : `${point.tick ?? index}`),
+  })), [data])
+
+  if (!chartData.length) return <EmptyState title="Telemetry unavailable" detail="Waiting for telemetry from the simulation API." kind="unknown" />
+  const available = series.filter((item) => chartData.some((row) => {
+    const value = (row as TelemetryPoint)[item.key]
+    return typeof value === 'number' && Number.isFinite(value)
+  }))
+  if (!available.length) return <EmptyState title="No chartable series" detail="The telemetry response does not include these fields." kind="unknown" />
+
+  return (
+    <div className="chart-container" style={{ height }} role="img" aria-label={`Time series chart showing ${available.map((item) => item.label).join(', ')} in ${unit}`}>
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={chartData} margin={{ top: 10, right: 10, bottom: 0, left: -16 }}>
+          <CartesianGrid stroke="rgba(23,60,50,.12)" strokeDasharray="2 5" vertical={false} />
+          <XAxis dataKey="__time" minTickGap={36} tick={{ fill: '#78877f', fontSize: 9, fontFamily: 'var(--mono)' }} axisLine={{ stroke: 'rgba(23,60,50,.2)' }} tickLine={false} />
+          <YAxis unit={` ${unit}`} width={62} tick={{ fill: '#78877f', fontSize: 9, fontFamily: 'var(--mono)' }} axisLine={false} tickLine={false} />
+          <Tooltip contentStyle={{ background: '#f6f6f0', border: '1px solid rgba(23,60,50,.25)', borderRadius: 0, color: '#173c32', fontSize: 10 }} labelStyle={{ fontFamily: 'var(--mono)' }} />
+          <Legend verticalAlign="top" align="right" height={30} iconType="plainline" wrapperStyle={{ color: '#73817b', fontSize: 9 }} />
+          {available.map((item) => <Line key={item.key} type="monotone" dataKey={item.key} name={item.label} stroke={item.color} strokeWidth={1.8} dot={false} activeDot={{ r: 3 }} isAnimationActive={false} connectNulls={false} />)}
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}

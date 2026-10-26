@@ -1,67 +1,81 @@
-# TraceX GreenGrid
+# Origin
 
-Software-only renewable microgrid fault-localization project. **Stage 1 only is
-implemented and tested:** physical simulation, deterministic fault injection,
-timestamped communication, controller logs, dependency topology, and offline exports.
-There is no trained model, anomaly detector, web server, dashboard, or incident
-database yet. No AI predictions or performance metrics are produced.
+Origin is a front end for observing a simulated renewable microgrid and reviewing fault-localization results. Simulation values, predictions, evidence, and evaluation metrics are only displayed when returned by the API. The interface does not control physical equipment.
 
-## Setup
+## Frontend setup
 
-Python 3.11 or 3.12, no hardware, external APIs, or paid services. Installation needs
-PyPI access; simulation and tests run offline after installation.
+Requirements: Node.js 22.12+ and npm. Start the separate FastAPI backend on `http://127.0.0.1:8000`, then run the frontend from the repository root:
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r backend/requirements.txt
-.\.venv\Scripts\python.exe -m pytest -q
-$env:PYTHONPATH = 'backend'
-.\.venv\Scripts\python.exe -m app.simulator --fault normal --output outputs/normal
-.\.venv\Scripts\python.exe -m app.simulator --fault inverter --mode derate --severity 0.8 --start 30 --duration 120 --correct-at 110 --output outputs/inverter
+```sh
+npm install
+npm run dev
 ```
 
-On macOS/Linux use `.venv/bin/python` and `export PYTHONPATH=backend`.
-In this Codex workspace the virtual environment was bootstrapped with the bundled
-Python 3.12 runtime because the Windows `python` alias is unavailable. The commands
-using `.venv\Scripts\python.exe` work directly here.
+Vite serves the app at `http://127.0.0.1:5173` and proxies `/api` and `/ws` to the local backend. The static production build is created in `dist/`:
 
-Outputs include `telemetry.csv`, `telemetry.json`, `topology.json`, and a **separate**
-`scenario_ground_truth.json`. Keep the latter out of future inference features.
-The printed totals are directly integrated physical simulation quantities, not
-sustainability attribution, ML evaluation, or estimated carbon savings.
+```sh
+npm run typecheck
+npm run build
+npm run preview
+```
 
-## Structure
+The simulation engine in `backend/` is the project’s Stage 1 Python simulator. It does not itself implement the FastAPI endpoints below; run the separately specified API service for live data and actions.
+
+## Environment variables
+
+Copy `.env.example` to `.env.local` as needed.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `VITE_API_BASE_URL` | empty | Empty uses Vite’s local proxy. Set to the API origin (for example `http://127.0.0.1:8000`) when serving the frontend elsewhere. |
+
+## API contract assumptions
+
+All endpoints are typed centrally in `src/services/api.ts`; shapes live in `src/types/domain.ts`. Responses may omit optional values. Missing values render as unknown or unavailable, never as fabricated zeros. The API should return JSON arrays for telemetry, events, and incident lists; a topology object with `nodes` and optional `edges`; and the named fields documented by the TypeScript interfaces. The telemetry WebSocket is assumed at `/ws/telemetry`, accepting individual telemetry points or arrays (optionally wrapped in `data` or `telemetry`). If it is unavailable, the client polls `GET /api/telemetry` and reconnects with backoff.
+
+The brief does not specify routes or schemas for changing run speed or applying a correction. The UI assumes `POST /api/simulation/speed` with `{ "speed": number }` and `POST /api/simulation/correct` with `{ "incident_id": string | number }`. It assumes `POST /api/model/evaluate` returns metrics synchronously. `POST /api/simulation/start` receives `{ scenario, seed, speed }`; `scenario` sends `inverter` for the UI’s Actuator / inverter option. Fault injection sends `{ scenario, severity, start_tick, seed }`. Export uses `GET /api/reports/export?format=csv|json`, returned as a downloadable response body. Adjust these single-point assumptions in `src/services/api.ts` if the separately specified backend uses different paths or payload keys.
+
+Ground truth is displayed only when an incident response provides `ground_truth`; it is visually distinct from model predictions. Suspected graph links remain separate from known dependencies. Sustainability values carry the API’s estimate flag or the `estimated_loss_kwh` field label. Evaluation labels refer to held-out simulation scenarios.
+
+## Demo workflow mapped to the UI
+
+The task brief asks for an 11-step demo checklist but does not include the steps themselves. This practical checklist maps common demo actions to the available controls; rename or reorder it to match the backend’s official demo script.
+
+1. **Check service readiness** — open **System overview** and inspect backend/model health in the top bar.
+2. **Review the baseline microgrid** — inspect KPI values, power charts, topology, and recent events on **System overview**.
+3. **Choose a scenario and seed** — open **Live simulation**, select Normal or a fault family, set the random seed and speed.
+4. **Start the run** — use **Start**; the simulation clock and telemetry should update from the API.
+5. **Pause or resume time** — use **Pause** and **Resume** as enabled by the current run state.
+6. **Inject a fault** — select a non-normal scenario, set severity and start tick, then use **Inject fault**.
+7. **Inspect component response** — review the live telemetry and component status list; then return to **System overview** for charts and recent events.
+8. **Investigate an incident** — open **Fault investigation**, choose an incident, review evidence and candidate confidence, and select graph nodes for their telemetry/events.
+9. **Apply a simulated correction** — use **Apply simulated corrective action** on an incident; the control is explicitly simulation-only.
+10. **Compare energy outcomes** — open **Sustainability** to review returned normal/faulty/after-correction comparison and assumptions.
+11. **Export and evaluate** — use **Incident history** filters and CSV/JSON export, then open **Model evaluation** to inspect held-out metrics or run evaluation.
+
+## Project structure
 
 ```text
-backend/
-  app/
-    simulator/          # Validated immutable config, physical model, CLI
-    fault_injection/    # Fault families, validated schedules, scenario truth
-    propagation/        # NetworkX dependency graph and downstream traversal
-  tests/                # Deterministic physics, faults, graph, export checks
-  requirements.txt
-docs/simulation.md      # Equations, units, and limitations
-pyproject.toml          # Test discovery
+src/
+  components/       shared UI, shell, charts, topology graph
+  hooks/            API resource and telemetry streaming hooks
+  pages/            overview, simulation, investigation, sustainability, incidents, evaluation
+  services/api.ts   typed HTTP and WebSocket access
+  types/            API domain types
+  utils/            telemetry and metric formatting
+backend/            simulator and supporting Python modules
+docs/               simulator documentation
 ```
 
-## Library use
+## Simulator notes
 
-```python
-from app.simulator import MicrogridSimulator, GridConfig
+The Python simulator is synchronous and hardware-free. It produces synthetic signals. Its CLI and physical model documentation remain in `docs/simulation.md`; the frontend consumes the separate FastAPI service described above.
 
-sim = MicrogridSimulator(GridConfig(start_hour=17), seed=42)
-sim.run(10)
-sim.inject("sensor", "bias", severity=0.8, duration_ticks=20)  # Starts now
-rows = sim.run(10)
-sim.correct()  # Restores components; preserves battery energy and simulation time
-sim.run(20)
-sim.reset()    # Clears history and schedules; restores original seeded RNG state
+For a local Python simulator run, install its requirements and invoke the CLI from the repository root:
+
+```sh
+python -m venv .venv
+. .venv/bin/activate
+python -m pip install -r backend/requirements.txt
+PYTHONPATH=backend python -m app.simulator --fault inverter --mode derate --severity 0.8 --start 30 --duration 120 --correct-at 110 --output outputs/inverter
 ```
-
-Only one fault can be active at a time. Disjoint scheduled faults are supported.
-`step()` executes exactly one tick; no background loop or wall-clock sleep exists.
-Callers must serialize simulator access. Start/pause/resume synchronization belongs
-to the future API stage. Methods are intentionally synchronous in Stage 1.
-
-See [simulation documentation](docs/simulation.md) for fault modes, field semantics,
-energy accounting, graph limitations, and the next-stage boundary.
