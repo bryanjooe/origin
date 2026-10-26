@@ -38,10 +38,10 @@ export function OverviewPage() {
 
       <div className="two-column-grid overview-charts">
         <Card title="Power balance" eyebrow="TELEMETRY / POWER" action={<span className="micro-label">kW · SIMULATED</span>}>
-          {telemetryError && !normalized.length ? <EmptyState title="Telemetry unavailable" detail={telemetryError} kind="error" /> : <TimeSeriesChart data={normalized} unit="kW" series={[{ key: 'solar_generation_kw', label: 'Solar', color: '#17684f' }, { key: 'demand_kw', label: 'Demand', color: '#a9622f' }, { key: 'delivered_kw', label: 'Delivered', color: '#168c98' }]} />}
+          {telemetryError && !normalized.length ? <EmptyState title="Telemetry unavailable" detail={telemetryError} kind="error" /> : <TimeSeriesChart data={normalized} unit="kW" series={[{ key: 'solar_generation_kw', label: 'Solar', color: 'var(--chart-solar)' }, { key: 'demand_kw', label: 'Demand', color: 'var(--chart-demand)' }, { key: 'delivered_kw', label: 'Delivered', color: 'var(--chart-delivered)' }]} />}
         </Card>
         <Card title="Storage and anomaly signal" eyebrow="TELEMETRY / STATE" action={<span className="micro-label">API VALUES ONLY</span>}>
-          {telemetryError && !normalized.length ? <EmptyState title="Telemetry unavailable" detail={telemetryError} kind="error" /> : <TimeSeriesChart data={normalized} unit="% / score" series={[{ key: 'battery_soc_pct', label: 'Battery SoC', color: '#168c98' }, { key: 'anomaly_score', label: 'Model anomaly score', color: '#a9433d' }]} />}
+          {telemetryError && !normalized.length ? <EmptyState title="Telemetry unavailable" detail={telemetryError} kind="error" /> : <TimeSeriesChart data={normalized} unit="% / score" series={[{ key: 'battery_soc_pct', label: 'Battery SoC', color: 'var(--chart-delivered)' }, { key: 'anomaly_score', label: 'Model anomaly score', color: 'var(--chart-anomaly)' }]} />}
         </Card>
       </div>
 
