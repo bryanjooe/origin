@@ -46,11 +46,11 @@ export function TimeSeriesChart({
     <div className="chart-container" style={{ height }} role="img" aria-label={`Time series chart showing ${available.map((item) => item.label).join(', ')} in ${unit}`}>
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={chartData} margin={{ top: 10, right: 10, bottom: 0, left: -16 }}>
-          <CartesianGrid stroke="rgba(23,60,50,.12)" strokeDasharray="2 5" vertical={false} />
-          <XAxis dataKey="__time" minTickGap={36} tick={{ fill: '#78877f', fontSize: 9, fontFamily: 'var(--mono)' }} axisLine={{ stroke: 'rgba(23,60,50,.2)' }} tickLine={false} />
-          <YAxis unit={` ${unit}`} width={62} tick={{ fill: '#78877f', fontSize: 9, fontFamily: 'var(--mono)' }} axisLine={false} tickLine={false} />
-          <Tooltip contentStyle={{ background: '#f6f6f0', border: '1px solid rgba(23,60,50,.25)', borderRadius: 0, color: '#173c32', fontSize: 10 }} labelStyle={{ fontFamily: 'var(--mono)' }} />
-          <Legend verticalAlign="top" align="right" height={30} iconType="plainline" wrapperStyle={{ color: '#73817b', fontSize: 9 }} />
+          <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="2 5" vertical={false} />
+          <XAxis dataKey="__time" minTickGap={36} tick={{ fill: 'var(--chart-label)', fontSize: 9, fontFamily: 'var(--mono)' }} axisLine={{ stroke: 'var(--chart-axis)' }} tickLine={false} />
+          <YAxis unit={` ${unit}`} width={62} tick={{ fill: 'var(--chart-label)', fontSize: 9, fontFamily: 'var(--mono)' }} axisLine={false} tickLine={false} />
+          <Tooltip contentStyle={{ background: 'var(--paper-bright)', border: '1px solid var(--line-strong)', borderRadius: 0, color: 'var(--ink)', fontSize: 10 }} labelStyle={{ fontFamily: 'var(--mono)' }} />
+          <Legend verticalAlign="top" align="right" height={30} iconType="plainline" wrapperStyle={{ color: 'var(--muted)', fontSize: 9 }} />
           {available.map((item) => <Line key={item.key} type="monotone" dataKey={item.key} name={item.label} stroke={item.color} strokeWidth={1.8} dot={false} activeDot={{ r: 3 }} isAnimationActive={false} connectNulls={false} />)}
         </LineChart>
       </ResponsiveContainer>

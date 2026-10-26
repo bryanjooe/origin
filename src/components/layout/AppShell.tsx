@@ -5,6 +5,7 @@ import { api } from '../../services/api'
 import { getSeverity } from '../../utils/status'
 import { useApiResource } from '../../hooks/useApiResource'
 import { Badge } from '../ui'
+import { ThemeToggle } from '../ui/ThemeToggle'
 
 const routes = [
   { to: '/', label: 'System overview', icon: RadioTower, end: true },
@@ -77,6 +78,7 @@ export function AppShell() {
             <Badge severity={getSeverity(simStatus)}>{simStatus?.toUpperCase() ?? 'STATUS UNKNOWN'}</Badge>
             <Badge severity={getSeverity(anomalyStatus)}><AlertTriangle size={12} aria-hidden="true" />ANOMALY {anomalyStatus?.toUpperCase() ?? 'UNKNOWN'}</Badge>
             <span className="health-chip" title="Model health"><Bot size={14} aria-hidden="true" /><span>MODEL</span><b>{modelStatus?.toUpperCase() ?? 'UNKNOWN'}</b></span>
+            <ThemeToggle />
             <button className="mobile-menu" aria-label="Toggle navigation" aria-expanded={navOpen} onClick={() => setNavOpen((open) => !open)}><Menu size={18} /></button>
           </div>
         </header>

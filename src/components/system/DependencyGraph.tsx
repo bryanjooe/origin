@@ -1,7 +1,25 @@
 import { useEffect, useRef } from 'react'
 import cytoscape from 'cytoscape'
-import type { Core, ElementDefinition, EventObject } from 'cytoscape'
+import type { Core, ElementDefinition, EventObject, StylesheetStyle } from 'cytoscape'
 import type { TopologyEdge, TopologyNode } from '../../types/domain'
+import { useTheme } from '../../context/ThemeContext'
+
+function graphStyles(isDark: boolean): StylesheetStyle[] {
+  return [
+    { selector: 'node', style: { 'background-color': isDark ? '#203c31' : '#e1ebe4', 'border-color': isDark ? '#72c69b' : '#719683', 'border-width': 1.25, label: 'data(label)', color: isDark ? '#e5eee8' : '#1c2924', 'font-family': 'Avenir Next, Segoe UI, sans-serif', 'font-size': '12.5px', 'text-wrap': 'wrap', 'text-max-width': '112.5px', width: 97.5, height: 47.5, shape: 'round-rectangle', 'text-valign': 'center', 'text-halign': 'center' } },
+    { selector: 'node[status = "critical"]', style: { 'background-color': isDark ? '#462c2a' : '#f3e2df', 'border-color': isDark ? '#f09b92' : '#a9433d' } },
+    { selector: 'node[status = "warning"]', style: { 'background-color': isDark ? '#453824' : '#f3eadb', 'border-color': isDark ? '#e5ad6f' : '#a9622f' } },
+    { selector: 'node.possible', style: { 'border-style': 'dotted', 'background-color': isDark ? '#29382e' : '#edf1eb' } },
+    { selector: 'node.observed', style: { 'background-color': isDark ? '#453824' : '#f3eadb', 'border-color': isDark ? '#e5ad6f' : '#a9622f' } },
+    { selector: 'node.phase1-origin', style: { 'border-width': 3.5, 'border-color': isDark ? '#e5ad6f' : '#a9622f' } },
+    { selector: 'node.security-origin', style: { 'border-width': 4, 'border-color': isDark ? '#72c69b' : '#17684f', 'border-style': 'dashed' } },
+    { selector: 'node.timeline-focus', style: { 'underlay-color': isDark ? '#62c3cc' : '#168c98', 'underlay-opacity': 0.2, 'underlay-padding': 7 } },
+    { selector: 'node:selected', style: { 'border-width': 2.5, 'border-color': isDark ? '#62c3cc' : '#168c98', 'background-color': isDark ? '#244a4c' : '#d7eaeb' } },
+    { selector: 'edge', style: { width: 1.25, 'line-color': isDark ? '#718b7c' : '#98a99d', 'target-arrow-color': isDark ? '#718b7c' : '#98a99d', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', 'arrow-scale': 0.75 } },
+    { selector: 'edge.suspected', style: { 'line-style': 'dashed', width: 2.5, 'line-color': isDark ? '#e5ad6f' : '#a9622f', 'target-arrow-color': isDark ? '#e5ad6f' : '#a9622f' } },
+    { selector: 'edge.security-path', style: { 'line-style': 'dashed', width: 2.5, 'line-color': isDark ? '#72c69b' : '#17684f', 'target-arrow-color': isDark ? '#72c69b' : '#17684f' } },
+  ]
+}
 
 export function graphElements(nodes: TopologyNode[], edges: TopologyEdge[]): ElementDefinition[] {
   const ids = new Set(nodes.map((node) => node.id))
@@ -32,6 +50,7 @@ export function DependencyGraph({
   selectedNode?: string
   highlightedNodes?: string[]
 }) {
+  const { theme } = useTheme()
   const hostRef = useRef<HTMLDivElement | null>(null)
   const cyRef = useRef<Core | null>(null)
   const selectRef = useRef(onNodeSelect)
@@ -46,20 +65,7 @@ export function DependencyGraph({
       elements: [],
       minZoom: 0.45,
       maxZoom: 2.2,
-      style: [
-        { selector: 'node', style: { 'background-color': '#e1ebe4', 'border-color': '#719683', 'border-width': 1.25, label: 'data(label)', color: '#1c2924', 'font-family': 'Avenir Next, Segoe UI, sans-serif', 'font-size': '12.5px', 'text-wrap': 'wrap', 'text-max-width': '112.5px', width: 97.5, height: 47.5, shape: 'round-rectangle', 'text-valign': 'center', 'text-halign': 'center' } },
-        { selector: 'node[status = "critical"]', style: { 'background-color': '#f3e2df', 'border-color': '#a9433d' } },
-        { selector: 'node[status = "warning"]', style: { 'background-color': '#f3eadb', 'border-color': '#a9622f' } },
-        { selector: 'node.possible', style: { 'border-style': 'dotted', 'background-color': '#edf1eb' } },
-        { selector: 'node.observed', style: { 'background-color': '#f3eadb', 'border-color': '#a9622f' } },
-        { selector: 'node.phase1-origin', style: { 'border-width': 3.5, 'border-color': '#a9622f' } },
-        { selector: 'node.security-origin', style: { 'border-width': 4, 'border-color': '#17684f', 'border-style': 'dashed' } },
-        { selector: 'node.timeline-focus', style: { 'underlay-color': '#168c98', 'underlay-opacity': 0.2, 'underlay-padding': 7 } },
-        { selector: 'node:selected', style: { 'border-width': 2.5, 'border-color': '#168c98', 'background-color': '#d7eaeb' } },
-        { selector: 'edge', style: { width: 1.25, 'line-color': '#98a99d', 'target-arrow-color': '#98a99d', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', 'arrow-scale': 0.75 } },
-        { selector: 'edge.suspected', style: { 'line-style': 'dashed', width: 2.5, 'line-color': '#a9622f', 'target-arrow-color': '#a9622f' } },
-        { selector: 'edge.security-path', style: { 'line-style': 'dashed', width: 2.5, 'line-color': '#17684f', 'target-arrow-color': '#17684f' } },
-      ],
+      style: graphStyles(theme === 'dark'),
     })
     const select = (event: EventObject) => {
       const selected = nodesRef.current.find((node) => node.id === event.target.id())
@@ -73,6 +79,10 @@ export function DependencyGraph({
       cy.destroy()
     }
   }, [])
+
+  useEffect(() => {
+    cyRef.current?.style().fromJson(graphStyles(theme === 'dark')).update()
+  }, [theme])
 
   useEffect(() => {
     const cy = cyRef.current
