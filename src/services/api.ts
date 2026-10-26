@@ -2,6 +2,7 @@ import type {
   HealthResponse, IncidentDetail, IncidentGraph, IncidentSummary, ModelMetrics,
   SimulationActionResponse, SustainabilityResponse, SystemState, TelemetryPoint,
   TopologyResponse, EventRecord, EvidenceItem, PredictionCandidate, TelemetryBatch,
+  SecurityAttribution, SecurityMetrics,
 } from '../types/domain'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
@@ -112,6 +113,7 @@ function mapIncidentDetail(item: unknown): IncidentDetail {
     evidence: describedEvidence.length ? describedEvidence : evidence, residual_checks: residualChecks,
     timeline, diagnostic_checks: Array.isArray(explanation.diagnostic_checks) ? explanation.diagnostic_checks.filter((item): item is string => typeof item === 'string') : [],
     affected_components: Array.isArray(graph.potentially_affected_nodes) ? graph.potentially_affected_nodes.filter((value): value is string => typeof value === 'string') : [],
+    security_attribution: raw.security_attribution as SecurityAttribution | undefined,
   }
 }
 
@@ -130,7 +132,7 @@ function mapModelMetrics(rawValue: unknown): ModelMetrics {
   const rows = Array.isArray(detectorReport.by_mode_and_severity) ? detectorReport.by_mode_and_severity : []
   const severityRows = Array.isArray(detectorReport.by_mode_and_severity) ? detectorReport.by_mode_and_severity : []
   const trainingScenarios = record(raw.training_scenarios)
-  const modelAvailable = Object.values(models).some((entry) => record(entry).available === true)
+  const modelAvailable = ['anomaly', 'source'].some((name) => record(models[name]).available === true)
   const perClass = Object.entries(sourceClass).map(([label, value]) => {
     const metric = record(value)
     return { label, precision: number(metric.precision), recall: number(metric.recall), f1: number(metric['f1-score']), support: number(metric.support) }
@@ -249,6 +251,7 @@ export const api = {
     }
   },
   getModelMetrics: async (): Promise<ModelMetrics> => mapModelMetrics(await data<unknown>('/api/model/metrics')),
+  getSecurityMetrics: async (): Promise<SecurityMetrics> => data<SecurityMetrics>('/api/security/metrics'),
   evaluateModel: async (): Promise<ModelMetrics> => {
     const job = await post<unknown>('/api/model/evaluate', { profile: 'quick' })
     const result = mapModelMetrics(await data<unknown>('/api/model/metrics'))

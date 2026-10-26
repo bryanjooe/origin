@@ -38,9 +38,24 @@ def test_health_state_missing_models_and_schema(client):
     assert client.get("/openapi.json").status_code == 200
     assert data(client.get("/api/system/topology"))["edges"]
     assert client.post("/api/model/evaluate").status_code == 503
+    security = data(client.get("/api/security/metrics"))
+    assert security["provenance"] == "synthetic simulations only"
+    assert security["held_out"]["nature"]["count"] > 0
+    assert set(security["class_run_counts"]) == {"normal", "fault", "attack"}
     state = data(client.post("/api/simulation/step", json={"ticks": 3}))
     assert state["next_tick"] == 3 and state["anomaly"] is None and state["source"] is None
     assert data(client.get("/api/incidents"))["total"] == 0
+
+
+def test_security_incident_attribution_is_explicit_when_model_missing(client):
+    runtime = client.app.state.runtime
+    runtime.models.security_analyzer = None
+    result = runtime.security_attribution({"run_id": "unused"})
+    assert result["available"] is False
+    assert result["nature_verdict"] == "Undetermined"
+    assert result["nature_confidence"] is None
+    assert result["origin"] == "Unknown"
+    assert "not available" in result["reason"]
 
 
 @pytest.mark.parametrize("path,body", [
