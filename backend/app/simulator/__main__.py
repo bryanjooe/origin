@@ -20,12 +20,21 @@ def main():
     parser.add_argument("--duration", type=int, default=60)
     parser.add_argument("--correct-at", type=int)
     parser.add_argument("--output", type=Path, default=Path("outputs/demo"))
+    parser.add_argument("--anomaly-model", type=Path, help="Optional trusted Stage 2 Joblib artifact")
     args = parser.parse_args()
     if args.ticks < 1:
         parser.error("--ticks must be positive")
     if args.correct_at is not None and not 0 <= args.correct_at < args.ticks:
         parser.error("--correct-at must be within the run")
     sim = MicrogridSimulator(seed=args.seed)
+    detector = extractor = None
+    if args.anomaly_model:
+        from app.detection import AnomalyDetector, FeatureExtractor
+        try:
+            detector = AnomalyDetector.load(args.anomaly_model)
+        except (FileNotFoundError, ValueError) as error:
+            parser.error(f"Anomaly model unavailable: {error}")
+        extractor = FeatureExtractor(sim.config)
     if args.fault != "normal":
         kind = FaultKind(args.fault)
         mode = args.mode or {"sensor": "bias", "communication": "delay",
@@ -37,10 +46,13 @@ def main():
             sim.inject(kind, mode, args.severity, args.duration, args.start)
         except ValueError as error:
             parser.error(str(error))
+    observations = []
     for tick in range(args.ticks):
         if tick == args.correct_at:
             sim.correct()
-        sim.step()
+        row = sim.step()
+        if extractor is not None:
+            observations.append(extractor.update(row))
     args.output.mkdir(parents=True, exist_ok=True)
     with (args.output / "telemetry.csv").open("w", newline="", encoding="utf-8") as stream:
         writer = csv.DictWriter(stream, fieldnames=list(sim.history[0]))
@@ -56,6 +68,12 @@ def main():
         "nodes": [{"id": node, **data} for node, data in graph.nodes(data=True)],
         "edges": [{"source": a, "target": b, **data} for a, b, data in graph.edges(data=True)],
     }, indent=2), encoding="utf-8")
+    if detector is not None:
+        detection = detector.predict(observations)
+        (args.output / "anomaly_scores.json").write_text(json.dumps(detection, indent=2), encoding="utf-8")
+        (args.output / "anomaly_events.json").write_text(json.dumps([
+            row for row in detection if row["combined_status"] != "normal"
+        ], indent=2), encoding="utf-8")
     dt = sim.config.tick_seconds / 3600
     print(json.dumps({"ticks": args.ticks, "seed": args.seed,
                       "solar_generated_kwh": sum(r["actual_solar_kw"] for r in sim.history) * dt,

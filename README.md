@@ -1,10 +1,10 @@
 # TraceX GreenGrid
 
-Software-only renewable microgrid fault-localization project. **Stage 1 only is
-implemented and tested:** physical simulation, deterministic fault injection,
-timestamped communication, controller logs, dependency topology, and offline exports.
-There is no trained model, anomaly detector, web server, dashboard, or incident
-database yet. No AI predictions or performance metrics are produced.
+Software-only renewable microgrid fault-localization project. **Stages 1 and 2 are
+implemented:** physical simulation, deterministic fault injection, timestamped
+communication, controller logs, dependency topology, and a normal-baseline
+Isolation Forest anomaly detector with separately labeled residual checks.
+There is no source classifier, web server, dashboard, or incident database yet.
 
 ## Setup
 
@@ -30,6 +30,31 @@ Outputs include `telemetry.csv`, `telemetry.json`, `topology.json`, and a **sepa
 The printed totals are directly integrated physical simulation quantities, not
 sustainability attribution, ML evaluation, or estimated carbon savings.
 
+## Stage 2: train and run anomaly detection
+
+```powershell
+$env:PYTHONPATH = 'backend'
+.\.venv\Scripts\python.exe -m app.detection
+.\.venv\Scripts\python.exe -m app.simulator --fault sensor --mode bias --start 30 --duration 60 --anomaly-model outputs/stage2/anomaly.joblib --output outputs/scored-sensor
+```
+
+Training creates `outputs/stage2/anomaly.joblib`, normal-only training features,
+training/calibration manifests, and held-out `evaluation.json`. Artifacts are
+generated locally and ignored by Git; rerun training after cloning. Only load
+Joblib artifacts you trust. Missing models report an error and produce no predictions.
+The scored simulator additionally exports per-tick `anomaly_scores.json` and
+`anomaly_events.json` (alert ticks, not deduplicated incidents), including detection
+time, ML score/status, residual checks and affected signals. Core telemetry remains
+separate from alerts and hidden scenario metadata.
+
+Default evaluation uses 24 normal training runs, 8 normal calibration runs, 8 held-out
+normal runs, and 96 held-out fault runs covering all 16 modes at three severities.
+ML active-fault-tick recall is **29.68%**, combined ML/rule recall **71.89%**, and
+both have **0.84%** false positives on held-out normal ticks. These are synthetic
+results; some faults are missed. Scores are not probabilities or source confidence.
+See [detector methodology](docs/detection.md) and the
+[measured validation report](docs/stage2-validation.md).
+
 ## Structure
 
 ```text
@@ -38,6 +63,7 @@ backend/
     simulator/          # Validated immutable config, physical model, CLI
     fault_injection/    # Fault families, validated schedules, scenario truth
     propagation/        # NetworkX dependency graph and downstream traversal
+    detection/          # Causal features, normal-only ML, calibration, evaluation
   tests/                # Deterministic physics, faults, graph, export checks
   requirements.txt
 docs/simulation.md      # Equations, units, and limitations
