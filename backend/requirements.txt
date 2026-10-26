@@ -1,2 +1,8 @@
 networkx==3.4.2
+fastapi==0.115.12
+uvicorn==0.34.0
+httpx==0.28.1
+SQLAlchemy==2.0.40
+alembic==1.15.2
+psycopg[binary]==3.2.6
 pytest==8.3.5

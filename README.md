@@ -1,10 +1,11 @@
 # TraceX GreenGrid
 
-Software-only renewable microgrid fault-localization project. **Stage 1 only is
-implemented and tested:** physical simulation, deterministic fault injection,
-timestamped communication, controller logs, dependency topology, and offline exports.
-There is no trained model, anomaly detector, web server, dashboard, or incident
-database yet. No AI predictions or performance metrics are produced.
+Software-only renewable microgrid fault-localization project. Stage 1 provides the
+physical simulator, deterministic fault injection, timestamped communication,
+controller logs, dependency topology, and offline exports. Stage 2 adds a versioned
+FastAPI layer with PostgreSQL persistence for runs, incidents, and result metadata.
+There is still no trained model, anomaly detector, or dashboard. No AI predictions or
+performance metrics are produced.
 
 ## Setup
 
@@ -14,10 +15,14 @@ PyPI access; simulation and tests run offline after installation.
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r backend/requirements.txt
+$env:PYTHONPATH = 'backend'
+$env:TRACEX_DATABASE_URL = 'postgresql+psycopg://tracex_user:CHANGE_ME@localhost:5432/tracex_greengrid'
+.\.venv\Scripts\python.exe -m alembic -c backend/alembic.ini upgrade head
 .\.venv\Scripts\python.exe -m pytest -q
 $env:PYTHONPATH = 'backend'
 .\.venv\Scripts\python.exe -m app.simulator --fault normal --output outputs/normal
 .\.venv\Scripts\python.exe -m app.simulator --fault inverter --mode derate --severity 0.8 --start 30 --duration 120 --correct-at 110 --output outputs/inverter
+.\.venv\Scripts\python.exe -m uvicorn app.api.main:app --host 127.0.0.1 --port 8000
 ```
 
 On macOS/Linux use `.venv/bin/python` and `export PYTHONPATH=backend`.
@@ -38,9 +43,13 @@ backend/
     simulator/          # Validated immutable config, physical model, CLI
     fault_injection/    # Fault families, validated schedules, scenario truth
     propagation/        # NetworkX dependency graph and downstream traversal
-  tests/                # Deterministic physics, faults, graph, export checks
+    api/                # FastAPI routes, typed schemas, settings, errors, services
+    persistence/        # PostgreSQL entities, repository, managed result files
+  migrations/           # Additive Alembic schema migrations
+  tests/                # Simulator, faults, graph, exports, and API checks
   requirements.txt
 docs/simulation.md      # Equations, units, and limitations
+docs/api.md             # API, persistence, migrations, and environment settings
 pyproject.toml          # Test discovery
 ```
 
@@ -60,8 +69,11 @@ sim.reset()    # Clears history and schedules; restores original seeded RNG stat
 
 Only one fault can be active at a time. Disjoint scheduled faults are supported.
 `step()` executes exactly one tick; no background loop or wall-clock sleep exists.
-Callers must serialize simulator access. Start/pause/resume synchronization belongs
-to the future API stage. Methods are intentionally synchronous in Stage 1.
+The API serializes access per run and advances in bounded requests; simulator methods
+remain synchronous.
 
 See [simulation documentation](docs/simulation.md) for fault modes, field semantics,
-energy accounting, graph limitations, and the next-stage boundary.
+energy accounting, graph limitations, and the next-stage boundary. See
+[API documentation](docs/api.md) for endpoints, request limits, CORS configuration,
+export authorization, and current persistence limitations. Copy `.env.example` for
+the available settings; the API reads them from process environment variables.
