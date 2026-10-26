@@ -1,13 +1,14 @@
 # TraceX GreenGrid
 
-Software-only renewable microgrid fault-localization project. **Stages 1–5 are
+Software-only renewable microgrid fault-localization project. **Stages 1–6 are
 implemented:** physical simulation, deterministic fault injection, timestamped
 communication, controller logs, dependency topology, and a normal-baseline
 Isolation Forest anomaly detector with separately labeled residual checks, and a
 Random Forest source classifier with confidence-based abstention. Incident reports
 now group alerts, trace evidence-compatible dependency paths and explain observations.
 FastAPI now serves synchronized simulation controls, real inference, persisted
-SQLite incidents and paired sustainability comparisons. The frontend is next.
+SQLite incidents and paired sustainability comparisons. A responsive React dashboard
+now connects the complete simulation and investigation workflow.
 
 ## Setup
 
@@ -152,8 +153,45 @@ Model paths/database location are configurable through environment variables in
 See [API contract](docs/api.md), [energy accounting](docs/sustainability.md), and
 [Stage 5 validation](docs/stage5-validation.md).
 
-**Two stages remain after Stage 5:** Stage 6 (React dashboard) and Stage 7
-(complete evaluation, demo validation and final documentation).
+## Stage 6: run the complete dashboard
+
+Use Node.js 24.15+ (build/tests used 24.21.0; local preview used 24.22.1). Keep the backend command above running
+in one terminal, then open a second terminal at the repository root:
+
+```powershell
+cd frontend
+npm ci
+npm run dev
+```
+
+Open **[TraceX GreenGrid](http://127.0.0.1:5173)**. Vite forwards `/api` requests
+to FastAPI on port 8000; no external APIs or paid services are required. If these
+ports are already serving this project, reuse them instead of starting duplicates.
+Stop foreground development servers with Ctrl+C in their respective terminals.
+
+The six pages cover System Overview, Live Simulation, Fault Investigation,
+Sustainability Analysis, Incident History/Reports and Model Evaluation. Controls
+start/pause/reset/step the real simulator, schedule all implemented fault modes,
+apply software-only corrections, inspect evidence-linked Cytoscape nodes/edges,
+filter/export persisted incidents and run held-out model evaluation. Ground truth
+is in a separate disclosure panel. Missing models and lost connections are explicit.
+
+Frontend checks:
+
+```powershell
+cd frontend
+npm test
+npm run build
+```
+
+After building, `npm run preview` serves the production bundle on port 5173 with
+the same API proxy; stop the dev server first. The backend must still be running.
+The frontend lockfile pins the resolved dependency tree. Do not commit `dist`,
+`node_modules`, generated models or SQLite files.
+
+See [frontend architecture and usage](docs/frontend.md) and
+[Stage 6 validation](docs/stage6-validation.md). **One stage remains:** Stage 7,
+the final full evaluation, end-to-end demo validation and final documentation.
 
 ## Structure
 
@@ -173,6 +211,15 @@ backend/
     main.py             # FastAPI app and endpoints
   tests/                # Deterministic physics, faults, graph, export checks
   requirements.txt
+frontend/
+  src/
+    pages/              # All six dashboard pages
+    components/         # Charts, graph inspection and shared UI
+    hooks/              # Bounded live polling and mutation handling
+    services/           # FastAPI envelope/error client
+    types/              # TypeScript response contracts
+  qa/                   # Development-only mobile viewport harness
+  package-lock.json
 docs/simulation.md      # Equations, units, and limitations
 pyproject.toml          # Test discovery
 ```

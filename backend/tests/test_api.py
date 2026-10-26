@@ -154,6 +154,8 @@ def test_real_models_incident_details_filters_graph_and_restart(api_models, work
                               anomaly_model=workspace_tmp_path / "anomaly.joblib", source_model=workspace_tmp_path / "source.joblib")
     with TestClient(create_app(settings)) as client:
         assert data(client.get("/api/health"))["status"] == "ok"
+        datasets = data(client.get("/api/model/metrics"))["datasets"]
+        assert datasets["anomaly"]["training_runs"] == 4 and datasets["source"]["training_runs"] > 0
         data(client.post("/api/simulation/scenario", json={"fault": {"kind": "inverter", "mode": "shutdown", "start_tick": 10, "duration_ticks": 60}}))
         data(client.post("/api/simulation/step", json={"ticks": 35}))
         listing = data(client.get("/api/incidents"))

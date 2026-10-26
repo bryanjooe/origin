@@ -188,6 +188,11 @@ def create_app(settings: ServerSettings | None = None):
         service = runtime(request)
         async with service.lock:
             return ok({"models": service.models.availability(), "artifact_sha256": service.models.fingerprints,
+                       "datasets": {name: {"training_rows": model.metadata["training_rows"],
+                                            "training_runs": len(model.metadata["training_runs"]),
+                                            **({"calibration_rows": model.metadata["calibration_rows"],
+                                                "calibration_runs": len(model.metadata["calibration_runs"])} if name == "anomaly" else {})}
+                                    for name, model in (("anomaly", service.models.detector), ("source", service.models.localizer)) if model is not None},
                        "evaluation": dict(service.evaluation), "reports": deepcopy_reports(service.models.reports),
                        "saved_report_errors": dict(service.models.report_errors)})
 
