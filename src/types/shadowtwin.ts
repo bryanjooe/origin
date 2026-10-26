@@ -1,4 +1,12 @@
 export type ShadowIntervention = 'use_redundant_solar' | 'restore_controller_policy' | 'flush_communication'
+export interface ShadowIncidentContext {
+  id: string | number
+  title?: string
+  status?: string
+  runId?: string
+  startTick?: number
+  endTick?: number
+}
 export interface ShadowHypothesis {
   hypothesis_id: string
   component: 'solar_sensor' | 'controller' | 'communication'
@@ -36,6 +44,8 @@ export interface ShadowHypothesisResult {
   exclusion_reason?: string | null
   explanation: string
   warnings: string[]
+  recorded_evidence_ids?: string[]
+  relevant_abnormalities?: string[]
   physical_observations: Record<string, {unit: string; control_mean_excess: number; experimental_mean_excess: number}>
   experiment: null | {
     start_tick: number | null

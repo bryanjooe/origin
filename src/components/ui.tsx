@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { AlertCircle, CheckCircle2, CircleHelp, Info, LoaderCircle } from 'lucide-react'
+import { AlertCircle, CheckCircle2, CircleHelp, Info, LoaderCircle, Play, Pause, Square } from 'lucide-react'
 import type { Severity } from '../types/domain'
 
 export function Card({
@@ -28,8 +28,10 @@ export function Card({
   )
 }
 
-export function Badge({ severity, children }: { severity: Severity; children: ReactNode }) {
-  const Icon = severity === 'normal' ? CheckCircle2 : severity === 'warning' ? AlertCircle : severity === 'critical' ? AlertCircle : CircleHelp
+export function Badge({ severity, children, status }: { severity: Severity; children: ReactNode; status?: string }) {
+  const state = status?.toLowerCase()
+  const Icon = state === 'running' ? Play : state === 'paused' ? Pause : state === 'stopped' || state === 'idle' ? Square
+    : severity === 'normal' ? CheckCircle2 : severity === 'warning' || severity === 'critical' ? AlertCircle : Info
   return <span className={`badge badge-${severity}`}><Icon aria-hidden="true" size={13} strokeWidth={1.8} />{children}</span>
 }
 

@@ -2,11 +2,12 @@ import type {
   HealthResponse, IncidentDetail, IncidentGraph, IncidentSummary, ModelMetrics,
   SimulationActionResponse, SustainabilityResponse, SystemState, TelemetryPoint,
   TopologyResponse, EventRecord, EvidenceItem, PredictionCandidate, TelemetryBatch,
-  SecurityAttribution, SecurityMetrics,
+  SecurityAttribution, SecurityMetrics, AuthUser,
 } from '../types/domain'
 
 import type { AttackPayload, AttackScheduleResponse } from '../types/attacks'
 import type { ShadowComparison, ShadowRequest } from '../types/shadowtwin'
+import { componentStatus } from '../utils/componentStatus'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
 type JsonRecord = Record<string, unknown>
@@ -81,7 +82,7 @@ function mapTelemetry(item: unknown): TelemetryPoint {
 function mapIncident(item: unknown): IncidentSummary {
   const raw = record(item), diagnosis = record(raw.diagnosis), created = text(raw.created_at)
   return {
-    id: String(raw.id ?? ''), status: text(raw.status), severity: text(raw.severity),
+    id: String(raw.id ?? ''), run_id: text(raw.run_id), status: text(raw.status), severity: text(raw.severity),
     source: text(diagnosis.source) ?? 'unknown', predicted_source: text(diagnosis.source) === 'unknown' ? null : text(diagnosis.source) ?? null,
     confidence: number(diagnosis.confidence), anomaly_score: number(raw.peak_anomaly_score),
     timestamp: created, started_at: created, title: `${text(diagnosis.source) ?? 'Unknown'} source hypothesis`,
@@ -116,6 +117,7 @@ function mapIncidentDetail(item: unknown): IncidentDetail {
   }).sort((a, b) => (a.tick ?? a.simulation_time ?? 0) - (b.tick ?? b.simulation_time ?? 0)) : []
   const graph = record(raw.graph)
   return { ...base, summary: text(record(explanation).likely_source), candidates,
+    first_observed_tick: number(raw.first_observed_tick), last_alert_tick: number(raw.last_alert_tick),
     graph: Array.isArray(graph.nodes) ? normalizeGraph(graph as unknown as IncidentGraph) : undefined,
     evidence: describedEvidence.length ? describedEvidence : evidence, residual_checks: residualChecks,
     timeline, diagnostic_checks: Array.isArray(explanation.diagnostic_checks) ? explanation.diagnostic_checks.filter((item): item is string => typeof item === 'string') : [],
@@ -171,6 +173,25 @@ function mapModelMetrics(rawValue: unknown): ModelMetrics {
 }
 
 export const api = {
+  async getCurrentUser(): Promise<AuthUser | null> {
+    const session = await data<{ authenticated: boolean; user: AuthUser | null }>('/api/auth/me', { credentials: 'include' })
+    return session.authenticated ? session.user : null
+  },
+  async login(email: string, password: string): Promise<AuthUser> {
+    const session = await data<{ user: AuthUser }>('/api/auth/login', {
+      method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }),
+    })
+    return session.user
+  },
+  async createAccount(name: string, email: string, password: string): Promise<AuthUser> {
+    const session = await data<{ user: AuthUser }>('/api/auth/register', {
+      method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, email, password }),
+    })
+    return session.user
+  },
+  async logout(): Promise<void> {
+    await data('/api/auth/logout', { method: 'POST', credentials: 'include' })
+  },
   compareShadowTwin: (payload: ShadowRequest): Promise<ShadowComparison> => post('/api/shadowtwin/compare', payload),
   getHealth: async (): Promise<HealthResponse> => {
     const raw = record(await data<unknown>('/api/health'))
@@ -199,7 +220,9 @@ export const api = {
         renewable_utilization_pct: fraction === undefined ? undefined : fraction * 100,
         unmet_demand_kwh: number(operated.unmet_demand_kwh), active_incidents: number(incidentListing.total),
       },
-      components: topologyValue.nodes.map((node) => ({ id: node.id, name: node.label ?? node.id, status: 'unknown' })),
+      components: topologyValue.nodes.map((node) => {
+        return { id: node.id, name: node.label ?? node.id, ...componentStatus(node.id, telemetry, raw.anomaly ? anomaly : undefined) }
+      }),
     }
   },
   getTopology: async (): Promise<TopologyResponse> => data<TopologyResponse>('/api/system/topology'),

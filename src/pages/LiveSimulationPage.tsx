@@ -8,7 +8,7 @@ import { normalizeTelemetry } from '../utils/data'
 import { TimeSeriesChart } from '../components/charts/TimeSeriesChart'
 import { Badge, Button, Card, EmptyState } from '../components/ui'
 import { CyberattackInjection } from '../components/CyberattackInjection'
-import { getSeverity, simulationLabel } from '../utils/status'
+import { getSeverity, simulationLabel, simulationClock } from '../utils/status'
 
 const scenarios = [
   { value: 'normal', label: 'Normal operation' },
@@ -62,7 +62,7 @@ export function LiveSimulationPage() {
     <>
       <div className="page-intro">
         <div><p className="eyebrow">MICROGRID / CONTROL ROOM</p><h1>Live simulation</h1><p className="intro-copy">Run and inspect a simulated microgrid scenario. Controls act on the simulation only.</p></div>
-        <div className="intro-actions"><Badge severity={getSeverity(status)}>{simulationLabel(status)}</Badge></div>
+        <div className="intro-actions"><Badge severity={getSeverity(status)} status={status}>{simulationLabel(status)}</Badge></div>
       </div>
 
       {system.error && <EmptyState title="Simulation state unavailable" detail={system.error} kind="error" action={<Button variant="secondary" onClick={system.reload}>Retry</Button>} />}
@@ -106,7 +106,7 @@ export function LiveSimulationPage() {
         </Card>
 
         <Card title="Simulation clock" eyebrow="TIME / STATE" className="clock-card">
-          <div className="large-clock">{typeof system.data?.simulation_time === 'string' ? system.data.simulation_time : typeof simulationSeconds === 'number' ? <>{Math.floor(simulationSeconds / 60)}<span className="clock-unit"> MIN</span></> : '—'}</div>
+          <div className="large-clock" aria-label="Elapsed simulation time in hours and minutes">{simulationClock(system.data?.simulation_time, simulationSeconds)}</div>
           <div className="clock-meta"><span><i className="live-dot" />{isRunning ? 'ADVANCING' : isPaused ? 'PAUSED' : 'NOT RUNNING'}</span><span><Activity size={12} />{stream.toUpperCase()}</span></div>
           {!system.data && !system.loading && <EmptyState title="Clock unavailable" detail={system.error ?? 'No simulation state returned by the API.'} kind={system.error ? 'error' : 'unknown'} />}
         </Card>
@@ -121,6 +121,7 @@ export function LiveSimulationPage() {
           {telemetryError && normalized.length === 0 ? <EmptyState title="Telemetry unavailable" detail={telemetryError} kind="error" /> : <TimeSeriesChart data={normalized} unit="kW" series={[{ key: 'solar_generation_kw', label: 'Solar', color: '#17684f' }, { key: 'demand_kw', label: 'Demand', color: '#a9622f' }, { key: 'delivered_kw', label: 'Delivered', color: '#168c98' }]} />}
         </Card>
         <Card title="Component status" eyebrow="SYSTEM / HEALTH">
+          <p className="control-footnote">Current telemetry and residual checks. Unflagged does not establish that a component is fault-free.</p>
           {system.loading && !system.data ? <EmptyState title="Loading component status" kind="loading" /> : components.length ? <div className="component-list">{components.map((component: ComponentStatus) => <div className="component-row" key={component.id}><span className="component-name">{component.name ?? component.component ?? component.id}</span><Badge severity={getSeverity(component.severity ?? component.status)}>{simulationLabel(component.status ?? component.severity)}</Badge></div>)}</div> : <EmptyState title="Component status unavailable" detail="The system state response did not include component statuses." kind="unknown" />}
         </Card>
       </div>

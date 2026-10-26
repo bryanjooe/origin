@@ -30,6 +30,18 @@ beforeEach(() => {
   resource.reload.mockClear()
 })
 
+it('shows the formatted clock and distinct observed component states', () => {
+  resource.data = { simulation_status: 'running', simulation_time_seconds: 3660, components: [
+    { id: 'solar_sensor', name: 'Solar Sensor', status: 'observed_anomaly', severity: 'warning' },
+    { id: 'controller', name: 'Controller', status: 'unflagged', severity: 'normal' },
+  ] }
+  render(<LiveSimulationPage />)
+  expect(screen.getByLabelText('Elapsed simulation time in hours and minutes').textContent).toBe('01:01')
+  expect(screen.getByText('OBSERVED ANOMALY')).toBeTruthy()
+  expect(screen.getByText('UNFLAGGED')).toBeTruthy()
+  expect(screen.getByText('RUNNING').querySelector('.lucide-play')).toBeTruthy()
+})
+
 describe('Live Simulation cyberattack controls', () => {
   it('adds the attack form while retaining existing controls, clock, and telemetry panels', () => {
     render(<LiveSimulationPage />)

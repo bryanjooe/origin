@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react'
 import { Activity, AlertTriangle, Bot, ChartNoAxesCombined, ChevronRight, CircleDot, Leaf, Menu, RadioTower, Zap } from 'lucide-react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { api } from '../../services/api'
-import { getSeverity } from '../../utils/status'
+import { getSeverity, simulationClock } from '../../utils/status'
 import { useApiResource } from '../../hooks/useApiResource'
 import { Badge } from '../ui'
+import { useAuth } from '../../context/AuthContext'
+import './account.css'
 
 const routes = [
   { to: '/', label: 'System overview', icon: RadioTower, end: true },
@@ -24,17 +26,17 @@ const titles: Record<string, string> = {
   '/evaluation': 'Model evaluation',
 }
 
-function timeLabel(value?: string | number, seconds?: number): string {
-  if (typeof value === 'string' && value) return value
-  const total = typeof value === 'number' ? value : seconds
-  if (typeof total !== 'number' || !Number.isFinite(total)) return 'TIME UNKNOWN'
-  const minute = Math.floor(total / 60)
-  const h = Math.floor(minute / 60).toString().padStart(2, '0')
-  const m = (minute % 60).toString().padStart(2, '0')
-  return `${h}:${m}`
-}
-
 export function AppShell() {
+  const { user, logout } = useAuth()
+  const [signingOut, setSigningOut] = useState(false)
+  const [logoutError, setLogoutError] = useState<string | null>(null)
+  async function signOut() {
+    setSigningOut(true)
+    setLogoutError(null)
+    try { await logout() }
+    catch (error) { setLogoutError(error instanceof Error ? error.message : 'Could not sign out.') }
+    finally { setSigningOut(false) }
+  }
   const location = useLocation()
   const [navOpen, setNavOpen] = useState(false)
   useEffect(() => setNavOpen(false), [location.pathname])
@@ -64,6 +66,11 @@ export function AppShell() {
           ))}
         </nav>
         <div className="sidebar-bottom">
+          <div className="account-session">
+            <span title={user?.email}>{user?.name}</span>
+            <button type="button" disabled={signingOut} onClick={() => void signOut()}>{signingOut ? 'Signing out…' : 'Sign out'}</button>
+            {logoutError && <p role="alert">{logoutError}</p>}
+          </div>
           <div className="connection"><span className={`live-dot ${getSeverity(backendText) === 'normal' ? '' : 'muted-dot'}`} /><span>BACKEND {backendText?.toUpperCase() ?? 'UNKNOWN'}<small>API CONNECTION</small></span></div>
           <div className="side-foot">ORIGIN <span>MICROGRID / 01</span></div>
         </div>
@@ -73,9 +80,9 @@ export function AppShell() {
         <header className="topbar">
           <div className="breadcrumb"><span>Origin</span><b>/</b><strong>{currentTitle}</strong></div>
           <div className="topbar-right">
-          <span className="simulation-clock"><Zap size={13} aria-hidden="true" />SIM TIME <strong>{timeLabel(system.data?.simulation_time, system.data?.simulation_time_seconds ?? system.data?.sim_time_seconds)}</strong></span>
-            <Badge severity={getSeverity(simStatus)}>{simStatus?.toUpperCase() ?? 'STATUS UNKNOWN'}</Badge>
-            <Badge severity={getSeverity(anomalyStatus)}><AlertTriangle size={12} aria-hidden="true" />ANOMALY {anomalyStatus?.toUpperCase() ?? 'UNKNOWN'}</Badge>
+          <span className="simulation-clock"><Zap size={13} aria-hidden="true" />SIM TIME <strong>{simulationClock(system.data?.simulation_time, system.data?.simulation_time_seconds ?? system.data?.sim_time_seconds)}</strong></span>
+            <Badge severity={getSeverity(simStatus)} status={simStatus}>{simStatus?.toUpperCase() ?? 'STATUS UNKNOWN'}</Badge>
+            <Badge severity={getSeverity(anomalyStatus)}>ANOMALY {anomalyStatus?.toUpperCase() ?? 'UNKNOWN'}</Badge>
             <span className="health-chip" title="Model health"><Bot size={14} aria-hidden="true" /><span>MODEL</span><b>{modelStatus?.toUpperCase() ?? 'UNKNOWN'}</b></span>
             <button className="mobile-menu" aria-label="Toggle navigation" aria-expanded={navOpen} onClick={() => setNavOpen((open) => !open)}><Menu size={18} /></button>
           </div>

@@ -40,6 +40,13 @@ class Store:
                 tick INTEGER NOT NULL, created_at TEXT NOT NULL, payload TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS evaluations (
                 id TEXT PRIMARY KEY, created_at TEXT NOT NULL, payload TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                name TEXT NOT NULL, salt TEXT NOT NULL, password_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS auth_sessions (
+                token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                expires_at TEXT NOT NULL, created_at TEXT NOT NULL);
         """)
         self.connection.commit()
 
@@ -70,6 +77,37 @@ class Store:
         with self.lock, self.connection:
             self.connection.execute("UPDATE scenarios SET status=?,metadata=?,updated_at=? WHERE id=?",
                                     (status, encode(metadata), utc_now(), run_id))
+
+    def create_user(self, user_id, email, name, salt, password_hash):
+        with self.lock, self.connection:
+            self.connection.execute(
+                "INSERT INTO users(id,email,name,salt,password_hash,created_at) VALUES (?,?,?,?,?,?)",
+                (user_id, email, name, salt, password_hash, utc_now()))
+
+    def user_by_email(self, email):
+        with self.lock:
+            row = self.connection.execute(
+                "SELECT id,email,name,salt,password_hash FROM users WHERE email=? COLLATE NOCASE", (email,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def user_by_session(self, token_hash, now):
+        with self.lock:
+            row = self.connection.execute(
+                "SELECT users.id,users.email,users.name FROM auth_sessions "
+                "JOIN users ON users.id=auth_sessions.user_id WHERE auth_sessions.token_hash=? AND auth_sessions.expires_at>?",
+                (token_hash, now)).fetchone()
+            return dict(row) if row else None
+
+    def create_auth_session(self, token_hash, user_id, expires_at):
+        with self.lock, self.connection:
+            self.connection.execute(
+                "INSERT INTO auth_sessions(token_hash,user_id,expires_at,created_at) VALUES (?,?,?,?)",
+                (token_hash, user_id, expires_at, utc_now()))
+
+    def delete_auth_session(self, token_hash):
+        with self.lock, self.connection:
+            self.connection.execute("DELETE FROM auth_sessions WHERE token_hash=?", (token_hash,))
 
     def _save_reports(self, run_id, reports):
         for original in reports:

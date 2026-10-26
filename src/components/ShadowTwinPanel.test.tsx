@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { api } from '../services/api'
 import type { ShadowComparison } from '../types/shadowtwin'
@@ -63,9 +63,10 @@ it('sends exact endpoint identifiers and incident/run context then displays actu
   expect(request.hypotheses.map((h:{intervention:string})=>h.intervention)).toEqual(['use_redundant_solar','restore_controller_policy'])
   expect(request.hypotheses[0]).not.toHaveProperty('name')
   expect(screen.getByText('-0.25 kWh')).toBeTruthy()
-  expect(screen.getByText('Inconclusive — Available evidence does not distinguish these hypotheses.')).toBeTruthy()
+  expect(screen.getByRole('heading', {name:'No Clear Cause Identified'})).toBeTruthy()
+  expect(screen.getByText('Inconclusive')).toBeTruthy()
   expect(screen.getByText('Partial evidence support')).toBeTruthy()
-  expect(screen.getByText('Mixed effects')).toBeTruthy()
+  expect(screen.getByText('Mixed results')).toBeTruthy()
   expect(screen.getByTestId('comparison-chart').textContent).toContain('"control":1,"experimental":2')
   fireEvent.change(screen.getByLabelText('ShadowTwin measurement'),{target:{value:'battery_soc_pct'}})
   expect(screen.getByTestId('comparison-chart').textContent).toContain('"control":60,"experimental":59')
@@ -132,4 +133,126 @@ it('marks historical incident references and results from a reset run explicitly
   render(<ShadowTwinPanel system={system} incidentId="historical" />);select();run()
   expect(await screen.findByText(/Historical incident reference only/)).toBeTruthy()
   expect((await screen.findByRole('alert')).textContent).toContain('belong only to captured run run1')
+})
+
+
+it('groups the workflow into three categories while preserving all six API hypotheses', async () => {
+  const response=result()
+  const spy=vi.spyOn(api,'compareShadowTwin').mockResolvedValue(response)
+  render(<ShadowTwinPanel system={system} />)
+  for (const name of ['Select Investigation','Choose What to Test','Run Investigation'])
+    expect(screen.getByRole('heading',{name:new RegExp(name)})).toBeTruthy()
+  for (const category of ['Solar Measurement','Controller Behavior','Communication'])
+    fireEvent.click(screen.getByRole('button',{name:`Test ${category}`}))
+  run();await screen.findByText(/Captured run/)
+  const request=spy.mock.calls[0]![0]
+  expect(request.hypotheses).toHaveLength(6)
+  expect(request.hypotheses.map(item=>item.intervention)).toEqual(['use_redundant_solar','use_redundant_solar','restore_controller_policy','restore_controller_policy','flush_communication','flush_communication'])
+  expect(request.duration_ticks).toBe(20)
+  expect(screen.getAllByText(/Equivalent results cannot distinguish malfunction/)).toHaveLength(3)
+})
+
+it('keeps technical settings and evidence collapsed by default', async () => {
+  vi.spyOn(api,'compareShadowTwin').mockResolvedValue(result())
+  render(<ShadowTwinPanel system={system} />)
+  expect(screen.getByText('Advanced Settings').closest('details')?.open).toBe(false)
+  select();run();await screen.findByText(/Captured run/)
+  const disclosure=screen.getByText('View Technical Evidence').closest('details')!
+  expect(disclosure.open).toBe(false)
+  fireEvent.click(screen.getByText('View Technical Evidence'))
+  expect(disclosure.open).toBe(true)
+  expect(screen.getByText(result().hypotheses[0]!.explanation)).toBeTruthy()
+})
+
+it('shows the backend strongest controller intervention without source certainty', async () => {
+  const response=result(), item=response.hypotheses[0]!
+  Object.assign(item,{hypothesis_id:'controller_fault',intervention:'restore_controller_policy',suspected_component:'controller',
+    physical_observations:{controller_policy_residual:{unit:'kW',control_mean_excess:2.3,experimental_mean_excess:0}},
+    evidence_assessment:'Stronger relative evidence support',intervention_outcome:'Relevant symptoms reduced',delivered_energy_difference_kwh:0.768})
+  response.status='Ranked prospective evidence'
+  response.intervention_ranking=[{position:1,hypothesis_ids:['controller_fault'],relationship:'distinguishable'}]
+  response.tied_or_tradeoff_groups=[];response.inconclusive_reasons=[]
+  vi.spyOn(api,'compareShadowTwin').mockResolvedValue(response)
+  render(<ShadowTwinPanel system={system} />);select();run()
+  expect(await screen.findByRole('heading',{name:'Controller Intervention Performed Best'})).toBeTruthy()
+  expect(screen.getByText('+0.768 kWh')).toBeTruthy()
+  expect(screen.getByText(/historical origin and malicious intent remain unproven/)).toBeTruthy()
+  expect(screen.getByText('Improved')).toBeTruthy()
+  expect(within(screen.getByRole('region',{name:'What Changed in the Virtual Experiment?'})).getByText('2.3', {exact:false})).toBeTruthy()
+})
+
+it('preserves an equivalent top group and an actual zero energy difference', async () => {
+  const response=result()
+  response.intervention_ranking=[{position:1,hypothesis_ids:['solar_fault','controller_manipulation'],relationship:'equivalent'}]
+  response.hypotheses[0]!.delivered_energy_difference_kwh=0
+  vi.spyOn(api,'compareShadowTwin').mockResolvedValue(response)
+  render(<ShadowTwinPanel system={system} />);select();run()
+  expect(await screen.findByRole('heading',{name:'Multiple Equally Supported Outcomes'})).toBeTruthy()
+  expect(screen.getByText('0 kWh')).toBeTruthy()
+  expect(screen.queryByText(/Intervention Performed Best/)).toBeNull()
+})
+
+it('explains the backend no-abnormality reason with cautious next-step guidance', async () => {
+  const response=result()
+  response.inconclusive_reasons=['No above-threshold control abnormality was measurable using the existing residual rules.']
+  vi.spyOn(api,'compareShadowTwin').mockResolvedValue(response)
+  render(<ShadowTwinPanel system={system} />);select();run()
+  expect(await screen.findByRole('heading',{name:'No Relevant Abnormality Detected'})).toBeTruthy()
+  expect(screen.getByText(/selected incident may no longer be active/)).toBeTruthy()
+  expect(screen.getByText('Inconclusive')).toBeTruthy()
+})
+
+it('separates same-run earlier observations from the current snapshot before submission', () => {
+  render(<ShadowTwinPanel incidentId="old" system={{...system,next_tick:881,simulation_status:'paused'}}
+    incident={{id:'old',title:'Earlier incident',runId:'run1',startTick:57,endTick:82}} />)
+  expect(screen.getByText('Historical Incident — Current-State Test')).toBeTruthy()
+  expect(screen.getByText('Ticks 57–82')).toBeTruthy()
+  expect(screen.getByText('881')).toBeTruthy()
+  expect(screen.getByText(/not replaying the incident from its original start/)).toBeTruthy()
+})
+
+it('updates comparison data when the viewed hypothesis changes and keeps earlier IDs technical', async () => {
+  const response=result(), original=response.hypotheses[0]!
+  original.recorded_evidence_ids=['t57:solar_measurement_residual']
+  response.hypotheses.push({...original,hypothesis_id:'controller_manipulation',recorded_evidence_ids:[],
+    experiment:{...original.experiment!,experimental_telemetry:[{tick:10,inverter_actual_kw:9}]}})
+  vi.spyOn(api,'compareShadowTwin').mockResolvedValue(response)
+  render(<ShadowTwinPanel system={system} />);select();run();await screen.findByText(/Captured run/)
+  expect(screen.getByTestId('comparison-chart').textContent).toContain('"experimental":2')
+  fireEvent.change(screen.getByLabelText('ShadowTwin result hypothesis'),{target:{value:'controller_manipulation'}})
+  expect(screen.getByTestId('comparison-chart').textContent).toContain('"experimental":9')
+  expect(screen.getByText(/Earlier incident evidence IDs:/).closest('details')?.open).toBe(false)
+})
+
+
+it('does not turn a Pareto trade-off into an equivalent tie or a winner', async () => {
+  const response=result()
+  response.intervention_ranking=[{position:1,hypothesis_ids:['solar_fault','controller_manipulation'],relationship:'trade_off'}]
+  vi.spyOn(api,'compareShadowTwin').mockResolvedValue(response)
+  render(<ShadowTwinPanel system={system} />);select();run()
+  expect(await screen.findByRole('heading',{name:'No Clear Cause Identified'})).toBeTruthy()
+  expect(screen.getByText(/conflicting trade-offs/)).toBeTruthy()
+  expect(screen.queryByRole('heading',{name:'Multiple Equally Supported Outcomes'})).toBeNull()
+})
+
+it.each([['unsupported','Unsupported Experiment'],['failed','Experiment Failed']])('shows the actual %s conclusion', async (status,title) => {
+  const response=result()
+  Object.assign(response.hypotheses[0]!,{experiment_status:status,experiment:null,delivered_energy_difference_kwh:null})
+  vi.spyOn(api,'compareShadowTwin').mockResolvedValue(response)
+  render(<ShadowTwinPanel system={system} />);select();run()
+  expect(await screen.findByRole('heading',{name:title})).toBeTruthy()
+  expect(screen.queryByTestId('comparison-chart')).toBeNull()
+})
+
+
+it('maps the existing incident observation period without exposing hidden labels', async () => {
+  vi.stubGlobal('fetch',vi.fn().mockResolvedValue(new Response(JSON.stringify({data:{
+    id:'old:incident1',run_id:'old',first_observed_tick:57,last_alert_tick:82,
+    diagnosis:{source:'unknown'},ground_truth:{attack_target:'controller'},timeline:[],
+  }}))))
+  const incident=await api.getIncident('old:incident1')
+  expect(incident.run_id).toBe('old')
+  expect(incident.first_observed_tick).toBe(57)
+  expect(incident.last_alert_tick).toBe(82)
+  expect(incident).not.toHaveProperty('ground_truth')
 })

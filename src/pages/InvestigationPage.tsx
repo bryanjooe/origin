@@ -9,6 +9,7 @@ import { useApiResource } from '../hooks/useApiResource'
 import { api } from '../services/api'
 import type { EventRecord, IncidentDetail, IncidentSummary, SecurityAttribution, SystemState, TopologyNode } from '../types/domain'
 import { formatNumber, percent } from '../utils/data'
+import type { ShadowIncidentContext } from '../types/shadowtwin'
 
 export function InvestigationPage() {
   const system = useOutletContext<SystemState | null>()
@@ -18,6 +19,7 @@ export function InvestigationPage() {
   const [correcting, setCorrecting] = useState(false)
   const [correctionMessage, setCorrectionMessage] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [shadowIncident, setShadowIncident] = useState<ShadowIncidentContext>()
 
   useEffect(() => {
     const firstIncident = incidents.data?.[0]
@@ -33,9 +35,9 @@ export function InvestigationPage() {
       </div>
       {incidents.error && !incidents.data && <EmptyState title="Incident data unavailable" detail={incidents.error} kind="error" action={<Button onClick={incidents.reload}>Retry</Button>} />}
       {incidents.loading && !incidents.data ? <EmptyState title="Loading incidents" kind="loading" /> : !incidents.error && !incidents.data?.length ? <EmptyState title="No incidents to investigate" detail="The incident endpoint returned no records." kind="unknown" /> : null}
-      {selectedIncident && <InvestigationDetail key={String(selectedIncident.id)} incident={selectedIncident} selectedNode={selectedNode} onSelectNode={setSelectedNode} correcting={correcting} setCorrecting={setCorrecting} correctionMessage={correctionMessage} setCorrectionMessage={setCorrectionMessage} actionError={actionError} setActionError={setActionError} onChanged={incidents.reload} />}
+      {selectedIncident && <InvestigationDetail key={String(selectedIncident.id)} incident={selectedIncident} selectedNode={selectedNode} onSelectNode={setSelectedNode} correcting={correcting} setCorrecting={setCorrecting} correctionMessage={correctionMessage} setCorrectionMessage={setCorrectionMessage} actionError={actionError} setActionError={setActionError} onChanged={incidents.reload} onShadowContext={setShadowIncident} />}
       {incidents.data && incidents.data.length > 1 && <div className="incident-switcher"><span>INCIDENT</span>{incidents.data.map((incident) => <button key={incident.id} className={String(incident.id) === String(incidentId) ? 'selected' : ''} onClick={() => { setIncidentId(incident.id); setSelectedNode(null); setCorrectionMessage(null) }}>{incident.title ?? `${incident.source ?? 'Incident'} · ${incident.id}`}</button>)}</div>}
-      <ShadowTwinPanel incidentId={selectedIncident?.id} system={system} />
+      <ShadowTwinPanel incidentId={selectedIncident?.id} system={system} incident={shadowIncident?.id === selectedIncident?.id ? shadowIncident : selectedIncident ? {id:selectedIncident.id, title:selectedIncident.title, status:selectedIncident.status, runId:selectedIncident.run_id} : undefined} />
     </>
   )
 }
@@ -51,6 +53,7 @@ function InvestigationDetail({
   actionError,
   setActionError,
   onChanged,
+  onShadowContext,
 }: {
   incident: IncidentSummary
   selectedNode: TopologyNode | null
@@ -62,9 +65,17 @@ function InvestigationDetail({
   actionError: string | null
   setActionError: (value: string | null) => void
   onChanged: () => void
+  onShadowContext: (context: ShadowIncidentContext) => void
 }) {
   const detail = useApiResource<IncidentDetail>(`incident-detail-${summary.id}`, () => api.getIncident(summary.id), 3_000)
   const incident = detail.data
+  const observedTicks = (incident?.timeline ?? []).filter(event => event.event === 'symptom_observed' && typeof event.tick === 'number').map(event => event.tick!)
+  const startTick = incident?.first_observed_tick ?? (observedTicks.length ? Math.min(...observedTicks) : undefined)
+  const endTick = incident?.last_alert_tick ?? (observedTicks.length ? Math.max(...observedTicks) : undefined)
+  const contextRun = incident?.run_id ?? summary.run_id
+  useEffect(() => {
+    onShadowContext({id:summary.id, title:summary.title, status:summary.status, runId:contextRun, startTick, endTick})
+  }, [summary.id, summary.title, summary.status, contextRun, startTick, endTick, onShadowContext])
   const graph = { ...detail, data: incident?.graph ?? null }
   const [activeEvent, setActiveEvent] = useState<EventRecord | null>(null)
   const currentNode = graph.data?.nodes.find((node) => node.id === selectedNode?.id) ?? selectedNode

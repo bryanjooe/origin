@@ -139,6 +139,7 @@ export interface EvidenceItem {
 
 export interface IncidentSummary {
   id: string | number
+  run_id?: string
   title?: string
   status?: string
   severity?: string
@@ -152,6 +153,8 @@ export interface IncidentSummary {
 }
 
 export interface IncidentDetail extends IncidentSummary {
+  first_observed_tick?: number
+  last_alert_tick?: number
   graph?: IncidentGraph
   summary?: string
   candidates?: PredictionCandidate[]
@@ -335,3 +338,4 @@ export interface SimulationActionResponse {
   simulation_status?: string
   simulation_time?: string | number
 }
+export interface AuthUser { id: string; email: string; name: string }

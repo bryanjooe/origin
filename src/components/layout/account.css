@@ -1,0 +1,6 @@
+.account-session{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px;color:#d0dfd5;font-size:12px}
+.account-session>span{flex:1;min-width:0;overflow-wrap:anywhere}
+.account-session button{padding:7px;border:1px solid rgba(236,246,238,.3);background:transparent;color:inherit;cursor:pointer;font:inherit}
+.account-session button:disabled{opacity:.6;cursor:wait}
+.account-session p{width:100%;margin:0;overflow-wrap:anywhere}
+@media(min-width:901px) and (max-width:1225px){.account-session{padding:4px;justify-content:center}.account-session>span{display:none}.account-session button{font-size:10px}}

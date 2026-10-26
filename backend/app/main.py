@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.api.auth import router as auth_router
 from app.api.config import ServerSettings
 from app.api.runtime import RuntimeConflict, SimulationRuntime
 from app.propagation import build_topology
@@ -38,7 +39,8 @@ def create_app(settings: ServerSettings | None = None):
                   responses={422: {"model": ErrorEnvelope}, 409: {"model": ErrorEnvelope},
                              404: {"model": ErrorEnvelope}, 503: {"model": ErrorEnvelope}})
     app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://127.0.0.1:5175", "http://127.0.0.1:5176"],
-                       allow_methods=["GET", "POST"], allow_headers=["Content-Type"])
+                       allow_methods=["GET", "POST"], allow_headers=["Content-Type"], allow_credentials=True)
+    app.include_router(auth_router)
 
     def runtime(request: Request):
         return request.app.state.runtime
