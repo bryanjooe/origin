@@ -9,7 +9,7 @@ from app.explainability.incidents import IncidentTracker
 from app.localization import LocalizationFeatureExtractor
 from app.simulator import GridConfig, MicrogridSimulator
 from app.sustainability import EnergyLedger
-from app.security_analysis import extract_window
+from app.security_analysis.features import configured_features
 from app.security_analysis.attribution import build_attribution
 from .models import ModelRegistry
 
@@ -46,6 +46,8 @@ class SimulationRuntime:
         self.source_extractor = LocalizationFeatureExtractor(config)
         self.tracker = IncidentTracker()
         self._versions = {}
+        self._security_cache = {}
+        self._security_waiting = {}
         self.latest_anomaly = self.latest_source = None
         self._event_index = 0
         self.correction_ticks = []
@@ -57,8 +59,10 @@ class SimulationRuntime:
         return {**self.sim.settings(), "next_tick": self.sim.tick,
                 "model_artifact_sha256": dict(self.models.fingerprints),
                 "ground_truth": {"label": "Simulated scenario truth; not inference input",
-                                 "faults": self.sim.faults.ground_truth()},
+                                 "faults": self.sim.faults.ground_truth(),
+                                 "attacks": self.sim.attacks.ground_truth()},
                 "uncorrected_counterfactual_faults": self.uncorrected.faults.ground_truth(),
+                "uncorrected_counterfactual_attacks": self.uncorrected.attacks.ground_truth(),
                 "correction_ticks": list(self.correction_ticks), "sustainability": self.sustainability()}
 
     def sustainability(self):
@@ -86,86 +90,115 @@ class SimulationRuntime:
                 "models": self.models.availability(), "runtime_error": self.error,
                 "worker_active": self.task is not None and not self.task.done()}
 
-    def _reports(self):
+    def _reports(self, current):
         reports = self.tracker.reports(changed_since=self._versions)
         for report in reports:
             self._versions[report["id"]] = (report["as_of_tick"], report["status"])
+        changed_ids = {report["id"] for report in reports}
+        reports.extend(deepcopy(report) for key, report in self._security_waiting.items() if key not in changed_ids)
+        for report in reports:
+            assessment = self.security_attribution({**report, "run_id": self.run_id}, current)
+            report["security_attribution"] = assessment
+            if assessment["status"] == "pending" and assessment.get("detector_fire_tick") is not None:
+                self._security_waiting[report["id"]] = deepcopy(report)
+            else:
+                self._security_waiting.pop(report["id"], None)
         return reports
 
-    def security_attribution(self, report):
-        """Classify an incident from persisted observable telemetry only."""
+    def security_attribution(self, report, current=None):
+        """Freeze one complete causal window per incident; never consume scenario labels."""
+        if current is None and report.get("security_attribution") is not None:
+            return deepcopy(report["security_attribution"])
         model = self.models.security_analyzer
+        def unavailable(reason, status="unavailable", **details):
+            return {"available": False, "model_available": model is not None,
+                    "status": status, "nature_verdict": "Undetermined",
+                    "nature_confidence": None, "origin": "Unknown", "origin_confidence": None,
+                    "reason": reason, **details}
         if model is None:
-            return {"available": False, "nature_verdict": "Undetermined",
-                    "nature_confidence": None, "origin": "Unknown",
-                    "reason": "Security attribution model is not available."}
+            return unavailable(f"Security attribution model is not available. {self.models.security_error or ''}".strip())
         run_id = report.get("run_id")
         if not run_id:
-            return {"available": False, "nature_verdict": "Undetermined",
-                    "nature_confidence": None, "origin": "Unknown",
-                    "reason": "Incident run identity is unavailable."}
-
+            return unavailable("Incident run identity is unavailable.")
+        if current is not None and current.get("run_id") != run_id:
+            return unavailable("Observation and incident belong to different runs.")
         first_tick = report.get("first_observed_tick", report.get("detection_tick"))
         if not isinstance(first_tick, int):
-            return {"available": False, "nature_verdict": "Undetermined",
-                    "nature_confidence": None, "origin": "Unknown",
-                    "reason": "Anomaly onset tick is unavailable."}
+            return unavailable("Anomaly onset tick is unavailable.")
+        key = (run_id, report.get("local_id", report.get("id")), first_tick)
+        if key in self._security_cache:
+            return deepcopy(self._security_cache[key])
         policy = self.models.security_policy
         if policy is None:
-            return {"available": False, "nature_verdict": "Undetermined",
-                    "nature_confidence": None, "origin": "Unknown",
-                    "reason": "The training-calibrated alert policy is unavailable."}
+            return unavailable("The training-calibrated alert policy is unavailable.")
         observed_through = report.get("as_of_tick")
         if not isinstance(observed_through, int):
             observed_through = first_tick
+        if current is not None:
+            observed_through = current["telemetry"]["tick"]
         from app.security_analysis.dataset import _first_policy_fire
+        from app.security_analysis.features import WINDOW_TICKS
         detection_rows = self.store.telemetry(run_id, first_tick - 1,
                                                max(1, observed_through - first_tick + 1))
+        if current is not None:
+            detection_rows.append(current)
         statuses = [{"tick": item["telemetry"]["tick"],
                      "anomaly_score": (item.get("anomaly") or {}).get("anomaly_score", 0.0),
                      "residual_checks": (item.get("anomaly") or {}).get("residual_checks", [])}
-                    for item in detection_rows if item.get("anomaly") is not None]
+                    for item in detection_rows if item.get("anomaly") is not None
+                    and first_tick <= item["telemetry"]["tick"] <= observed_through]
         fire_tick = _first_policy_fire(statuses, policy)
         if fire_tick is None:
-            return {"available": False, "nature_verdict": "Undetermined",
-                    "nature_confidence": None, "origin": "Unknown",
-                    "reason": "The calibrated Stage B alert gate has not fired in this incident window."}
-        inference_tick = min(observed_through, fire_tick + 19)
-        before = self.store.telemetry(run_id, max(-1, fire_tick - 21), 21)
-        after = self.store.telemetry(run_id, fire_tick - 1, 20)
+            return unavailable("The calibrated Stage B alert gate has not fired in this incident window.",
+                               "pending" if report.get("status") == "open" else "insufficient_evidence")
+        inference_tick = fire_tick + WINDOW_TICKS - 1
+        before = self.store.telemetry(run_id, max(-1, fire_tick - WINDOW_TICKS - 1), WINDOW_TICKS)
+        after = self.store.telemetry(run_id, fire_tick - 1, WINDOW_TICKS)
+        if current is not None:
+            after.append(current)
         baseline = [item["telemetry"] for item in before
-                    if item.get("telemetry", {}).get("tick", inference_tick) < fire_tick]
+                    if item["telemetry"]["tick"] < fire_tick]
         rows = [item["telemetry"] for item in after
-                if fire_tick <= item.get("telemetry", {}).get("tick", -1) <= inference_tick]
-        if not rows:
-            return {"available": False, "nature_verdict": "Undetermined",
-                    "nature_confidence": None, "origin": "Unknown",
-                    "reason": "Insufficient post-alert telemetry for a causal window."}
-
+                if fire_tick <= item["telemetry"]["tick"] <= min(observed_through, inference_tick)]
+        window = {"detector_fire_tick": fire_tick, "window_start_tick": fire_tick,
+                  "window_end_tick": rows[-1]["tick"] if rows else None,
+                  "window_ticks": len(rows), "required_window_ticks": WINDOW_TICKS,
+                  "window_complete": len(rows) == WINDOW_TICKS}
+        if [row["tick"] for row in rows] != list(range(fire_tick, inference_tick + 1)):
+            return unavailable("Waiting for 20 consecutive observed post-alert ticks; no prediction has been made.",
+                               "pending", **window)
         scenario = self.store.scenario(run_id) or {}
-        metadata = scenario.get("metadata", {})
+        # Read only the nested physical configuration; labels/schedules never reach extraction.
+        config_data = scenario.get("metadata", {}).get("config", {})
         config_fields = set(GridConfig.__dataclass_fields__)
-        config = GridConfig(**{key: value for key, value in metadata.items() if key in config_fields})
+        config = GridConfig(**{key: value for key, value in config_data.items() if key in config_fields})
         try:
-            features = extract_window(rows, solar_capacity_kw=config.solar_capacity_kw,
-            battery_capacity_kwh=config.battery_capacity_kwh, tick_seconds=config.tick_seconds,
-            communication_delay_ticks=config.communication_delay_ticks,
-            charge_efficiency=config.charge_efficiency,
-            discharge_efficiency=config.discharge_efficiency, baseline_rows=baseline)
+            features = configured_features(rows, config, baseline_rows=baseline)
             prediction = model.predict_features(features)
+            attribution = build_attribution(rows, prediction) if prediction.get("available") else None
         except (KeyError, TypeError, ValueError) as error:
-            return {"available": False, "nature_verdict": "Undetermined",
-                    "nature_confidence": None, "origin": "Unknown",
-                    "reason": f"Telemetry window could not be evaluated: {error}"}
+            return unavailable(f"Telemetry window could not be evaluated: {error}", **window)
         if not prediction.get("available"):
-            return {**prediction, "reason": "The security classifier is not trained."}
-        attribution = build_attribution(rows, prediction)
-        return {**prediction, "nature_verdict": prediction.get("nature", "Undetermined"),
+            return unavailable("The security classifier is not trained.", **window)
+        result = {**prediction, **window, "status": "available", "model_available": True,
+                "nature_verdict": prediction.get("nature", "Undetermined"),
                 "ranked_origin_layers": prediction.get("origin_candidates", []),
-                "evidence": attribution,
-                "inference_tick": inference_tick,
-                "window_ticks": len(rows),
+                "evidence": attribution, "inference_tick": inference_tick,
+                "model_artifact_sha256": self.models.fingerprints.get("security_attribution"),
+                "feature_version": model.metadata.get("feature_version"),
+                "uncertainty": "Undetermined or Unknown indicates model abstention; scores are not guarantees.",
                 "provenance": "observable telemetry only; indicators are not proof of intent"}
+        self._security_cache[key] = deepcopy(result)
+        return result
+
+    def _final_reports(self):
+        reports = self.tracker.reports()
+        for report in reports:
+            assessment = self.security_attribution({**report, "run_id": self.run_id})
+            if assessment["status"] == "pending":
+                assessment.update(status="insufficient_evidence", reason="Run ended before sufficient observed telemetry was collected.")
+            report["security_attribution"] = assessment
+        return reports
 
     def _advance(self):
         row = self.sim.step()
@@ -173,7 +206,27 @@ class SimulationRuntime:
         uncorrected = self.uncorrected.step()
         observation = self.extractor.update(row)
         source_observation = self.source_extractor.update(row)
-        self.latest_anomaly = self.models.detector.predict([observation])[0] if self.models.detector else None
+        if self.models.detector:
+            self.latest_anomaly = self.models.detector.predict([observation])[0]
+        else:
+            # Keep rule-based residual monitoring available when optional
+            # trained artifacts are absent. This is not an ML prediction.
+            checks = observation.residual_checks
+            strongest_ratio = max((check["value"] / check["threshold"] for check in checks), default=0.0)
+            self.latest_anomaly = {
+                "tick": observation.tick,
+                "elapsed_seconds": observation.elapsed_seconds,
+                "anomaly_score": min(1.0, strongest_ratio / (1.0 + strongest_ratio)),
+                "ml_status": "unavailable",
+                "detector_available": False,
+                "warning_threshold": 0.5,
+                "critical_threshold": 0.9,
+                "residual_checks": checks,
+                "rule_status": "warning" if checks else "normal",
+                "combined_status": "warning" if checks else "normal",
+                "affected_variables": [check["signal"] for check in checks],
+                "ml_explanation": "ML detector unavailable; only explicit residual rules are evaluated.",
+            }
         self.latest_source = self.models.localizer.predict([source_observation])[0] if self.models.localizer else None
         if self.latest_anomaly:
             self.tracker.update(row, self.latest_anomaly, self.latest_source)
@@ -181,7 +234,8 @@ class SimulationRuntime:
             self.ledgers[name].update(data)
         events = self.sim.events[self._event_index:]
         self._event_index = len(self.sim.events)
-        self.store.save_tick(self.run_id, row, self.latest_anomaly, self.latest_source, self._reports(), events,
+        current = {"run_id": self.run_id, "telemetry": row, "anomaly": self.latest_anomaly, "source": self.latest_source}
+        self.store.save_tick(self.run_id, row, self.latest_anomaly, self.latest_source, self._reports(current), events,
                              status="running" if self.running else "paused", metadata=self.metadata())
 
     async def _loop(self):
@@ -251,7 +305,7 @@ class SimulationRuntime:
             return self.state()
 
     def _archive(self):
-        reports = self.tracker.reports()
+        reports = self._final_reports()
         for report in reports:
             if report["status"] == "open":
                 report.update(status="interrupted", interruption_reason="simulation_reset")
@@ -278,10 +332,33 @@ class SimulationRuntime:
     async def inject(self, fault_request):
         async with self.lock:
             fault = fault_request.fault(self.sim.tick)
+            engines = (self.sim.faults, self.uncorrected.faults)
+            if fault_request.start_tick is None:
+                # An implicit injection should use the first slot that is free
+                # in both the operated run and its uncorrected comparison run.
+                # This keeps the paired comparison valid after an initial or
+                # corrected fault has already reserved a window.
+                start_tick = fault.start_tick
+                while True:
+                    conflicts = [
+                        item
+                        for engine in engines
+                        for item in engine.ground_truth()
+                        if item["cancelled_at_tick"] is None
+                        and max(item["start_tick"], start_tick)
+                        < min(item["start_tick"] + item["duration_ticks"],
+                              start_tick + fault.duration_ticks)
+                    ]
+                    if not conflicts:
+                        break
+                    start_tick = max(item["start_tick"] + item["duration_ticks"]
+                                     for item in conflicts)
+                fault = type(fault)(fault.kind, fault.mode, start_tick,
+                                    fault.duration_ticks, fault.severity)
             if fault.start_tick + fault.duration_ticks > self.settings.max_ticks:
                 raise ValueError("Fault must finish within the configured run tick limit")
             # Validate both engines before mutating either schedule.
-            for engine in (self.sim.faults, self.uncorrected.faults):
+            for engine in engines:
                 if fault.start_tick < self.sim.tick or any(
                     max(item["start_tick"], fault.start_tick) < min(item["start_tick"] + item["duration_ticks"], fault.start_tick + fault.duration_ticks)
                     for item in engine.ground_truth() if item["cancelled_at_tick"] is None):
@@ -292,16 +369,39 @@ class SimulationRuntime:
             self.store.update_scenario(self.run_id, "running" if self.running else "paused", self.metadata())
             return {"scheduled": asdict(fault), "label": "Simulated ground truth; not a model prediction"}
 
+    async def inject_attack(self, attack_request):
+        async with self.lock:
+            attack = attack_request.attack(self.sim.tick)
+            if attack.start_tick + attack.duration_ticks > self.settings.max_ticks:
+                raise ValueError("Attack must finish within the configured run tick limit")
+            engines = (self.sim.attacks, self.uncorrected.attacks)
+            # Reuse engine validation on copies so either rejection leaves both
+            # live schedules untouched, including after an operated correction.
+            for engine in engines:
+                deepcopy(engine).schedule(attack, self.sim.tick)
+            for engine in engines:
+                engine.schedule(attack, self.sim.tick)
+            self.store.event(self.run_id, self.sim.tick, "attack_scheduled", category="simulation_action")
+            self.store.update_scenario(self.run_id, "running" if self.running else "paused", self.metadata())
+            return {"scheduled": asdict(attack), "label": "Simulated ground truth; not a model prediction"}
+
     async def correct(self):
         async with self.lock:
-            self.sim.correct()
+            correction = self.sim.correct()
             self.correction_ticks.append(self.sim.tick)
+            resolved_ids = self.store.resolve_open_incidents(
+                self.run_id, correction["correction_tick"], correction["actions_applied"])
             events = self.sim.events[self._event_index:]
             self._event_index = len(self.sim.events)
             for event in events:
-                self.store.event(self.run_id, event["tick"], event["event"])
+                self.store.event(self.run_id, event["tick"], event["event"],
+                                 **{key: value for key, value in event.items() if key not in ("tick", "event")},
+                                 resolved_incident_ids=resolved_ids)
             self.store.update_scenario(self.run_id, "running" if self.running else "paused", self.metadata())
-            return self.state()
+            return {**self.state(), "correction_applied": True,
+                    "correction_tick": correction["correction_tick"],
+                    "actions_applied": correction["actions_applied"],
+                    "resolved_incident_ids": resolved_ids}
 
     async def step(self, ticks):
         async with self.lock:
@@ -345,7 +445,7 @@ class SimulationRuntime:
         async with self.lock:
             self.closed = True
             self.running = False
-            reports = self.tracker.reports()
+            reports = self._final_reports()
             for report in reports:
                 if report["status"] == "open":
                     report.update(status="interrupted", interruption_reason="backend_shutdown")

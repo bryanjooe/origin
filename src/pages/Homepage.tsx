@@ -5,8 +5,8 @@ import { ThemeToggle } from '../components/ui/ThemeToggle'
 import './homepage.css'
 
 const INTRO_SEEN_KEY = 'tracex-greengrid-intro-seen'
-const SECTIONS = ['overview', 'capabilities', 'workflow', 'sustainability', 'architecture'] as const
-const SECTION_LABELS = { overview: 'Overview', capabilities: 'Capabilities', workflow: 'How it works', sustainability: 'Sustainability', architecture: 'Architecture' } as const
+const SECTIONS = ['overview', 'capabilities', 'workflow', 'architecture'] as const
+const SECTION_LABELS = { overview: 'Overview', capabilities: 'Capabilities', workflow: 'How it works', architecture: 'Architecture' } as const
 const capabilities = [
   ['01', 'Simulate and inject', 'Run a software microgrid and introduce a seeded fault with chosen timing and severity.', 'SOLAR · BATTERY · DEMAND · INVERTER', Activity],
   ['02', 'Detect abnormal behavior', 'An Isolation Forest learns normal simulated behavior and flags telemetry that departs from it.', 'ANOMALY DETECTION', ChartNoAxesCombined],
@@ -201,7 +201,7 @@ export function Homepage() {
           return <a key={section} href={'#' + section} aria-current={activeSection === section ? 'location' : undefined} onClick={() => setMenuOpen(false)}>{label}</a>
         })}
       </nav>
-      <div className="origin-home-tools"><ThemeToggle className="origin-theme-toggle" /><Link className="origin-header-cta" to="/" onClick={handleDestinationClick}>Launch dashboard <ArrowRight size={15} /></Link><button className="origin-mobile-menu" aria-label={menuOpen ? 'Close navigation' : 'Open navigation'} aria-expanded={menuOpen} aria-controls="tracex-home-nav" onClick={() => setMenuOpen((open) => !open)}>{menuOpen ? <X size={18} /> : <Menu size={18} />}</button></div>
+      <div className="origin-home-tools"><ThemeToggle className="origin-theme-toggle" /><Link className="origin-text-link" to="/register" onClick={handleDestinationClick}>Create account</Link><Link className="origin-header-cta" to="/login" onClick={handleDestinationClick}>Sign in <ArrowRight size={15} /></Link><button className="origin-mobile-menu" aria-label={menuOpen ? 'Close navigation' : 'Open navigation'} aria-expanded={menuOpen} aria-controls="tracex-home-nav" onClick={() => setMenuOpen((open) => !open)}>{menuOpen ? <X size={18} /> : <Menu size={18} />}</button></div>
     </header>
 
     <main id="origin-main">
@@ -210,7 +210,7 @@ export function Homepage() {
           <p className="origin-kicker origin-hero-kicker"><span className="origin-live-pip" /> AI-POWERED MICROGRID INTELLIGENCE</p>
           <h1 id="origin-hero-title"><span>Find the fault.</span><em>Save the energy.</em></h1>
           <p className="origin-hero-description">TraceX GreenGrid simulates a solar-and-battery microgrid, detects abnormal behavior, ranks likely fault sources, and traces how a fault may spread—with evidence behind each result.</p>
-          <div className="origin-hero-actions"><Link className="origin-button origin-button-primary" to="/" onClick={handleDestinationClick}>Explore the dashboard <ArrowRight size={16} /></Link><a className="origin-text-link" href="#workflow">See how it works <ArrowDown size={15} /></a></div>
+          <div className="origin-hero-actions"><Link className="origin-button origin-button-primary" to="/login" onClick={handleDestinationClick}>Sign in to workspace <ArrowRight size={16} /></Link><a className="origin-text-link" href="#workflow">See how it works <ArrowDown size={15} /></a></div>
           <div className="origin-hero-footnote"><ShieldCheck size={14} /> Simulation-based research system <span /> Likely sources, not proven causes</div>
           <button className="origin-replay-button" onClick={replayIntro}><Activity size={13} /> Replay the system trace</button>
         </div>
@@ -252,20 +252,6 @@ export function Homepage() {
         <div className="origin-model-note" data-origin-reveal="text"><span>IMPORTANT DISTINCTION</span><p>Isolation Forest detects abnormal behavior. Random Forest estimates a likely source. Graph paths show documented dependencies and evidence-compatible propagation—not verified causality.</p></div>
       </section>
 
-      <section className="origin-sustainability" id="sustainability" aria-labelledby="origin-sustainability-title">
-        <div className="origin-section-index" data-origin-reveal="text"><span>04 / ENERGY IMPACT</span><span>PAIRED SIMULATION COMPARISON</span></div>
-        <div className="origin-sustainability-grid">
-          <div className="origin-sustainability-copy" data-origin-reveal="text"><p className="origin-kicker">SUSTAINABILITY ANALYSIS</p><h2 id="origin-sustainability-title">Find the fault.<br /><em>See the energy at stake.</em></h2><p>Compare a normal baseline with a faulty, uncorrected run and a run after a simulated correction. The ledger helps examine energy lost or potentially recovered over the same horizon.</p><Link className="origin-inline-link" to="/sustainability" onClick={handleDestinationClick}>Explore sustainability analysis <ArrowRight size={15} /></Link></div>
-          <div className="origin-energy-compare" data-origin-reveal="visual" aria-label="Conceptual comparison of normal, faulty, and corrected simulated scenarios. No numerical results shown.">
-            <div className="origin-energy-heading"><span>SCENARIO COMPARISON</span><span>CONCEPTUAL / NO FIXED SAVINGS CLAIM</span></div>
-            <div className="origin-energy-row energy-normal"><span>01</span><div><strong>Normal operation</strong><small>Baseline energy ledger</small></div><i><b /></i></div>
-            <div className="origin-energy-row energy-faulty"><span>02</span><div><strong>Faulty operation</strong><small>Uncorrected fault scenario</small></div><i><b /></i></div>
-            <div className="origin-energy-row energy-corrected"><span>03</span><div><strong>After correction</strong><small>Simulated operated scenario</small></div><i><b /></i></div>
-            <p>Illustrative comparison only. Actual values and assumptions come from the local simulation API.</p>
-          </div>
-        </div>
-      </section>
-
       <section className="origin-evidence" id="evidence" aria-labelledby="origin-evidence-title">
         <div className="origin-section-index" data-origin-reveal="text"><span>05 / TRUST THE PROCESS</span><span>UNCERTAINTY STAYS VISIBLE</span></div>
         <div className="origin-evidence-grid">
@@ -286,7 +272,7 @@ export function Homepage() {
       <section className="origin-final-cta" aria-labelledby="origin-cta-title">
         <div className="origin-cta-mark" data-origin-reveal="visual" aria-hidden="true"><i /><i /><i /></div>
         <div data-origin-reveal="text"><p className="origin-kicker">TRACEX GREENGRID / LOCAL SIMULATION</p><h2 id="origin-cta-title">Make every fault<br /><em>easier to understand.</em></h2><p>Explore a scenario, inspect a suspected fault, and follow the evidence through the simulated system.</p></div>
-        <Link className="origin-button origin-button-light" to="/" onClick={handleDestinationClick}>Explore the dashboard <ArrowRight size={16} /></Link>
+        <Link className="origin-button origin-button-light" to="/login" onClick={handleDestinationClick}>Sign in to workspace <ArrowRight size={16} /></Link>
         <span className="origin-cta-foot">FIND THE FAULT · SAVE THE ENERGY</span>
       </section>
     </main>
@@ -294,7 +280,7 @@ export function Homepage() {
     <footer className="origin-home-footer">
       <Link className="origin-home-brand" to="/welcome" onClick={handleDestinationClick} aria-label="TraceX GreenGrid home"><span className="origin-brand-mark" aria-hidden="true"><i /><i /><i /></span><span>TraceX<small>GREEN GRID</small></span></Link>
       <p>Simulation-based fault localization.<br />Predictions are likely sources, not proven causes.</p>
-      <nav aria-label="Dashboard pages"><Link to="/simulation" onClick={handleDestinationClick}>Simulation</Link><Link to="/investigation" onClick={handleDestinationClick}>Investigation</Link><Link to="/sustainability" onClick={handleDestinationClick}>Sustainability</Link><Link to="/evaluation" onClick={handleDestinationClick}>Evaluation</Link><Link to="/" onClick={handleDestinationClick}>Dashboard</Link></nav>
+      <nav aria-label="Account"><Link to="/login" onClick={handleDestinationClick}>Sign in</Link><Link to="/register" onClick={handleDestinationClick}>Create account</Link></nav>
       <span className="origin-footer-meta">RESEARCH / SIMULATION 01</span>
     </footer>
   </div>

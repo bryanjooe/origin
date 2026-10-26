@@ -71,6 +71,18 @@ class SecurityWindowFeatures:
                               communication_delay_ticks=self.communication_delay_ticks)
 
 
+def configured_features(rows, config, *, baseline_rows=()):
+    """Shared offline/live physical scaling. No schedule or label argument exists."""
+    baseline_rows = list(baseline_rows)
+    for row in baseline_rows:
+        _reject_hidden(row)
+    return extract_window(rows, solar_capacity_kw=config.solar_capacity_kw,
+        battery_capacity_kwh=config.battery_capacity_kwh, tick_seconds=config.tick_seconds,
+        communication_delay_ticks=config.communication_delay_ticks,
+        charge_efficiency=config.charge_efficiency, discharge_efficiency=config.discharge_efficiency,
+        baseline_rows=baseline_rows)
+
+
 def extract_window(rows: Sequence[dict], *, solar_capacity_kw=12.0,
                    battery_capacity_kwh=24.0, tick_seconds=60.0,
                    communication_delay_ticks=0, charge_efficiency=0.95,

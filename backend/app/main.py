@@ -1,10 +1,17 @@
 """Local FastAPI application. Launch with one Uvicorn worker."""
 import asyncio
+import base64
 from contextlib import asynccontextmanager
 import csv
+from datetime import datetime, timedelta, timezone
+import hashlib
+import hmac
 import io
 import json
+import re
+import secrets
 from typing import Literal
+from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
@@ -12,12 +19,53 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from pydantic import BaseModel, Field
 
 from app.api.config import ServerSettings
 from app.api.runtime import RuntimeConflict, SimulationRuntime
 from app.propagation import build_topology
-from app.schemas.api import (Envelope, ErrorEnvelope, EvaluateRequest, FaultRequest, ResetRequest,
+from app.propagation.investigation import evidence_graph
+from app.schemas.api import (AttackRequest, Envelope, ErrorEnvelope, EvaluateRequest, FaultRequest, ResetRequest,
                              ScenarioRequest, SpeedRequest, StartRequest, StepRequest)
+
+SESSION_COOKIE = "origin_session"
+SESSION_DAYS = 14
+PASSWORD_ITERATIONS = 310_000
+
+
+class RegisterRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=8, max_length=256)
+
+
+class LoginRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=1, max_length=256)
+
+
+def _email(value):
+    normalized = value.strip().lower()
+    if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", normalized):
+        raise HTTPException(422, "Enter a valid email address")
+    return normalized
+
+
+def _password_hash(password, salt):
+    return hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, PASSWORD_ITERATIONS).hex()
+
+
+def _token_hash(token):
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _issue_session(request, response, user, store):
+    token = secrets.token_urlsafe(32)
+    expires = datetime.now(timezone.utc) + timedelta(days=SESSION_DAYS)
+    store.create_auth_session(_token_hash(token), user["id"], expires.isoformat())
+    response.set_cookie(SESSION_COOKIE, token, max_age=SESSION_DAYS * 24 * 60 * 60,
+                        httponly=True, secure=request.url.scheme == "https", samesite="lax", path="/")
+    return {"id": user["id"], "email": user["email"], "name": user["name"]}
 
 
 def create_app(settings: ServerSettings | None = None):
@@ -35,7 +83,7 @@ def create_app(settings: ServerSettings | None = None):
                   responses={422: {"model": ErrorEnvelope}, 409: {"model": ErrorEnvelope},
                              404: {"model": ErrorEnvelope}, 503: {"model": ErrorEnvelope}})
     app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://127.0.0.1:5175", "http://127.0.0.1:5176"],
-                       allow_methods=["GET", "POST"], allow_headers=["Content-Type"])
+                       allow_methods=["GET", "POST"], allow_headers=["Content-Type"], allow_credentials=True)
 
     def runtime(request: Request):
         return request.app.state.runtime
@@ -63,6 +111,53 @@ def create_app(settings: ServerSettings | None = None):
     @app.exception_handler(Exception)
     async def internal_error(request, error):
         return JSONResponse(status_code=500, content={"error": {"code": "internal_error", "message": "Backend operation failed; inspect server logs", "details": []}})
+
+    @app.get("/api/auth/me", response_model=Envelope)
+    async def auth_me(request: Request):
+        service = runtime(request)
+        token = request.cookies.get(SESSION_COOKIE)
+        user = service.store.user_by_session(_token_hash(token), datetime.now(timezone.utc).isoformat()) if token else None
+        return ok({"authenticated": user is not None, "user": user})
+
+    @app.post("/api/auth/register", response_model=Envelope, status_code=201)
+    async def auth_register(request: Request, response: Response, body: RegisterRequest):
+        service = runtime(request)
+        email = _email(body.email)
+        name = body.name.strip()
+        if not name:
+            raise HTTPException(422, "Name is required")
+        salt = secrets.token_bytes(16)
+        user = {"id": str(uuid4()), "email": email, "name": name}
+        try:
+            service.store.create_user(user["id"], email, name, base64.b64encode(salt).decode("ascii"),
+                                      _password_hash(body.password, salt))
+        except Exception as error:
+            if service.store.user_by_email(email):
+                raise HTTPException(409, "An account with this email already exists") from error
+            raise
+        user = _issue_session(request, response, user, service.store)
+        return ok({"authenticated": True, "user": user})
+
+    @app.post("/api/auth/login", response_model=Envelope)
+    async def auth_login(request: Request, response: Response, body: LoginRequest):
+        service = runtime(request)
+        email = _email(body.email)
+        account = service.store.user_by_email(email)
+        if account is None:
+            raise HTTPException(401, "Email or password is incorrect")
+        salt = base64.b64decode(account["salt"])
+        candidate = _password_hash(body.password, salt)
+        if not hmac.compare_digest(candidate, account["password_hash"]):
+            raise HTTPException(401, "Email or password is incorrect")
+        return ok({"authenticated": True, "user": _issue_session(request, response, account, service.store)})
+
+    @app.post("/api/auth/logout", response_model=Envelope)
+    async def auth_logout(request: Request, response: Response):
+        token = request.cookies.get(SESSION_COOKIE)
+        if token:
+            runtime(request).store.delete_auth_session(_token_hash(token))
+        response.delete_cookie(SESSION_COOKIE, path="/", httponly=True, samesite="lax")
+        return ok({"authenticated": False, "user": None})
 
     @app.get("/api/health", response_model=Envelope)
     async def health(request: Request):
@@ -128,6 +223,10 @@ def create_app(settings: ServerSettings | None = None):
     async def inject(request: Request, body: FaultRequest):
         return ok(await runtime(request).inject(body))
 
+    @app.post("/api/simulation/inject-attack", response_model=Envelope)
+    async def inject_attack(request: Request, body: AttackRequest):
+        return ok(await runtime(request).inject_attack(body))
+
     @app.post("/api/simulation/correct", response_model=Envelope)
     async def correct(request: Request):
         return ok(await runtime(request).correct())
@@ -170,7 +269,13 @@ def create_app(settings: ServerSettings | None = None):
             report = service.store.incident(incident_id)
             if report is None:
                 raise HTTPException(404, "Incident not found")
-            report["security_attribution"] = service.security_attribution(report)
+            if report.get("security_attribution") is None:
+                assessment = service.security_attribution(report)
+                if assessment.get("status") == "pending" and report["status"] != "open":
+                    assessment.update(status="insufficient_evidence", reason="Historical incident has insufficient observed telemetry for a complete window.")
+                report["security_attribution"] = assessment
+                service.store.save_security_assessment(incident_id, assessment)
+            report["graph"] = evidence_graph(report["graph"], report["security_attribution"], report.get("evidence", []))
             return ok(report)
 
     @app.get("/api/incidents/{incident_id}/graph", response_model=Envelope)

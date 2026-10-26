@@ -40,17 +40,33 @@ class Store:
                 tick INTEGER NOT NULL, created_at TEXT NOT NULL, payload TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS evaluations (
                 id TEXT PRIMARY KEY, created_at TEXT NOT NULL, payload TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                name TEXT NOT NULL, salt TEXT NOT NULL, password_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS auth_sessions (
+                token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                expires_at TEXT NOT NULL, created_at TEXT NOT NULL);
         """)
         self.connection.commit()
 
     def recover_interrupted(self):
         with self.lock, self.connection:
             self.connection.execute("UPDATE scenarios SET status='interrupted',updated_at=? WHERE status IN ('running','paused')", (utc_now(),))
-            for row in self.connection.execute("SELECT id,report FROM incidents WHERE status='open'").fetchall():
+            for row in self.connection.execute("SELECT id,report FROM incidents").fetchall():
                 report = json.loads(row["report"])
-                report.update(status="interrupted", interruption_reason="backend_restart")
-                report["explanation"]["recovery"] = "Backend restarted; recovery was not observed."
-                self.connection.execute("UPDATE incidents SET status='interrupted',report=? WHERE id=?", (encode(report), row["id"]))
+                interrupted = report["status"] == "open"
+                pending = (report.get("security_attribution") or {}).get("status") == "pending"
+                if not interrupted and not pending:
+                    continue
+                if interrupted:
+                    report.update(status="interrupted", interruption_reason="backend_restart")
+                    report["explanation"]["recovery"] = "Backend restarted; recovery was not observed."
+                if pending:
+                    report["security_attribution"].update(status="insufficient_evidence",
+                        reason="Backend restarted before the observed classification window completed.")
+                self.connection.execute("UPDATE incidents SET status=?,report=? WHERE id=?",
+                                        (report["status"], encode(report), row["id"]))
 
     def create_scenario(self, run_id, metadata):
         now = utc_now()
@@ -61,6 +77,37 @@ class Store:
         with self.lock, self.connection:
             self.connection.execute("UPDATE scenarios SET status=?,metadata=?,updated_at=? WHERE id=?",
                                     (status, encode(metadata), utc_now(), run_id))
+
+    def create_user(self, user_id, email, name, salt, password_hash):
+        with self.lock, self.connection:
+            self.connection.execute(
+                "INSERT INTO users(id,email,name,salt,password_hash,created_at) VALUES (?,?,?,?,?,?)",
+                (user_id, email, name, salt, password_hash, utc_now()))
+
+    def user_by_email(self, email):
+        with self.lock:
+            row = self.connection.execute(
+                "SELECT id,email,name,salt,password_hash FROM users WHERE email=? COLLATE NOCASE", (email,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def user_by_session(self, token_hash, now):
+        with self.lock:
+            row = self.connection.execute(
+                "SELECT users.id,users.email,users.name FROM auth_sessions "
+                "JOIN users ON users.id=auth_sessions.user_id WHERE auth_sessions.token_hash=? AND auth_sessions.expires_at>?",
+                (token_hash, now)).fetchone()
+            return dict(row) if row else None
+
+    def create_auth_session(self, token_hash, user_id, expires_at):
+        with self.lock, self.connection:
+            self.connection.execute(
+                "INSERT INTO auth_sessions(token_hash,user_id,expires_at,created_at) VALUES (?,?,?,?)",
+                (token_hash, user_id, expires_at, utc_now()))
+
+    def delete_auth_session(self, token_hash):
+        with self.lock, self.connection:
+            self.connection.execute("DELETE FROM auth_sessions WHERE token_hash=?", (token_hash,))
 
     def _save_reports(self, run_id, reports):
         for original in reports:
@@ -129,13 +176,40 @@ class Store:
                 report = json.loads(row["report"])
                 items.append({key: report[key] for key in ("id", "run_id", "local_id", "status", "severity",
                              "detection_tick", "detection_time_seconds", "diagnosis", "confirmation_delay_seconds", "as_of_tick")}
-                             | {"created_at": row["created_at"]})
+                             | {"created_at": row["created_at"],
+                                "security_attribution": report.get("security_attribution")})
             return {"items": items, "total": total, "limit": limit, "offset": offset}
 
     def incident(self, incident_id):
         with self.lock:
             row = self.connection.execute("SELECT report,created_at FROM incidents WHERE id=?", (incident_id,)).fetchone()
             return {**json.loads(row["report"]), "created_at": row["created_at"]} if row else None
+
+    def save_security_assessment(self, incident_id, assessment):
+        """Enrich legacy JSON reports without replacing their diagnosis or schema."""
+        with self.lock, self.connection:
+            row = self.connection.execute("SELECT report FROM incidents WHERE id=?", (incident_id,)).fetchone()
+            if row is not None:
+                report = json.loads(row["report"])
+                report["security_attribution"] = assessment
+                self.connection.execute("UPDATE incidents SET report=? WHERE id=?", (encode(report), incident_id))
+
+    def resolve_open_incidents(self, run_id, tick, actions):
+        """Mark incidents as handled by an explicitly simulated correction."""
+        with self.lock, self.connection:
+            rows = self.connection.execute(
+                "SELECT id,report FROM incidents WHERE run_id=? AND status='open'", (run_id,)
+            ).fetchall()
+            resolved = []
+            for row in rows:
+                report = json.loads(row["report"])
+                report.update(status="resolved", resolved_at_tick=tick,
+                              correction_applied={"simulation_only": True, "tick": tick,
+                                                  "actions_applied": actions})
+                self.connection.execute("UPDATE incidents SET status='resolved',report=? WHERE id=?",
+                                        (encode(report), row["id"]))
+                resolved.append(row["id"])
+            return resolved
 
     def events(self, run_id=None, after=0, limit=100):
         with self.lock:

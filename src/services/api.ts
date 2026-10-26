@@ -2,8 +2,10 @@ import type {
   HealthResponse, IncidentDetail, IncidentGraph, IncidentSummary, ModelMetrics,
   SimulationActionResponse, SustainabilityResponse, SystemState, TelemetryPoint,
   TopologyResponse, EventRecord, EvidenceItem, PredictionCandidate, TelemetryBatch,
-  SecurityAttribution, SecurityMetrics,
+  SecurityAttribution, SecurityMetrics, AuthUser,
 } from '../types/domain'
+
+import type { AttackPayload, AttackScheduleResponse } from '../types/attacks'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
 type JsonRecord = Record<string, unknown>
@@ -16,13 +18,14 @@ export class ApiError extends Error {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response
   try {
-    response = await fetch(`${API_BASE}${path}`, { ...init, headers: { Accept: 'application/json', ...init?.headers } })
+    response = await fetch(`${API_BASE}${path}`, { ...init, credentials: 'include', headers: { Accept: 'application/json', ...init?.headers } })
   } catch (error) {
     throw new ApiError(error instanceof Error ? error.message : 'Could not reach the API.', 0)
   }
   if (!response.ok) {
-    const payload = await response.json().catch(() => null) as { error?: { message?: string }; detail?: string } | null
-    throw new ApiError(payload?.error?.message ?? payload?.detail ?? `Request failed (${response.status}).`, response.status)
+    const payload = await response.json().catch(() => null) as { error?: { message?: string; details?: { location?: (string | number)[]; message?: string }[] }; detail?: string } | null
+    const details = payload?.error?.details?.map((item) => `${item.location?.join('.') ?? 'Request'}: ${item.message ?? 'Invalid value'}`).join('; ')
+    throw new ApiError([payload?.error?.message ?? payload?.detail ?? `Request failed (${response.status}).`, details].filter(Boolean).join(' '), response.status)
   }
   return response.json() as Promise<T>
 }
@@ -40,8 +43,25 @@ function record(value: unknown): JsonRecord { return value && typeof value === '
 function number(value: unknown): number | undefined { return typeof value === 'number' && Number.isFinite(value) ? value : undefined }
 function text(value: unknown): string | undefined { return typeof value === 'string' ? value : undefined }
 
+function componentTelemetryFields(id: string, type?: string): string[] {
+  const key = `${id} ${type ?? ''}`.toLowerCase().replaceAll(/[^a-z0-9]+/g, ' ')
+  if (key.includes('irradiance')) return ['irradiance']
+  if (key.includes('solar sensor')) return ['measured_solar_kw', 'measured_solar_voltage_v', 'measured_solar_current_a']
+  if (key.includes('solar')) return ['actual_solar_kw', 'solar_voltage_v', 'solar_current_a']
+  if (key.includes('battery sensor')) return ['measured_soc_pct']
+  if (key.includes('battery')) return ['battery_soc_pct', 'battery_energy_kwh', 'battery_power_kw']
+  if (key.includes('demand sensor')) return ['controller_inputs']
+  if (key.includes('demand')) return ['demand_kw']
+  if (key.includes('communication')) return ['message_age_seconds', 'communication_latency_seconds', 'telemetry_available']
+  if (key.includes('controller')) return ['controller_command_kw', 'controller_rule']
+  if (key.includes('firmware') || key.includes('config')) return ['config_integrity_ok']
+  if (key.includes('inverter') || key.includes('actuator')) return ['inverter_actual_kw', 'inverter_requested_kw']
+  if (key.includes('delivered')) return ['delivered_kw']
+  return []
+}
+
 export interface ScenarioPayload { scenario: string; seed?: number; speed?: number; severity?: number; start_tick?: number }
-export interface FaultPayload { scenario: string; severity: number; start_tick: number; seed: number }
+export interface FaultPayload { scenario: string; severity: number; start_tick?: number; seed: number }
 
 const faultModes: Record<string, { kind: string; mode: string }> = {
   sensor: { kind: 'sensor', mode: 'bias' }, communication: { kind: 'communication', mode: 'delay' },
@@ -68,7 +88,9 @@ function mapTelemetry(item: unknown): TelemetryPoint {
     tick: number(telemetry.tick), timestamp: text(telemetry.timestamp),
     solar_generation_kw: number(telemetry.actual_solar_kw), actual_solar_kw: number(telemetry.actual_solar_kw),
     demand_kw: number(telemetry.demand_kw), delivered_kw: number(telemetry.delivered_kw),
-    battery_soc_pct: number(telemetry.battery_soc_pct), anomaly_score: number(anomaly.anomaly_score),
+    battery_soc_pct: number(telemetry.battery_soc_pct),
+    // A residual-only fallback must never be plotted or described as an ML score.
+    anomaly_score: anomaly.detector_available === false ? undefined : number(anomaly.anomaly_score),
     ml_status: text(anomaly.ml_status), residual_status: text(anomaly.rule_status), combined_status: text(anomaly.combined_status),
     predicted_source: text(source.predicted_source), source_confidence: number(source.confidence),
   } as TelemetryPoint
@@ -76,11 +98,27 @@ function mapTelemetry(item: unknown): TelemetryPoint {
 
 function mapIncident(item: unknown): IncidentSummary {
   const raw = record(item), diagnosis = record(raw.diagnosis), created = text(raw.created_at)
+  const groundTruth = record(raw.ground_truth)
+  const knownGroundTruth = text(groundTruth.source) ?? text(groundTruth.fault) ?? text(groundTruth.label)
+  const prediction = text(diagnosis.model_predicted_source) ?? text(diagnosis.predicted_source)
   return {
     id: String(raw.id ?? ''), status: text(raw.status), severity: text(raw.severity),
-    source: text(diagnosis.source) ?? 'unknown', predicted_source: text(diagnosis.source) === 'unknown' ? null : text(diagnosis.source) ?? null,
-    confidence: number(diagnosis.confidence), anomaly_score: number(raw.peak_anomaly_score),
-    timestamp: created, started_at: created, title: `${text(diagnosis.source) ?? 'Unknown'} source hypothesis`,
+    run_id: text(raw.run_id),
+    source: knownGroundTruth ?? text(raw.source), predicted_source: prediction && prediction !== 'unknown' ? prediction : null,
+    ground_truth: knownGroundTruth ? { source: knownGroundTruth } : null,
+    confidence: number(diagnosis.confidence),
+    anomaly_score: record(raw.trigger_detection).detector_available === false ? undefined : number(raw.peak_anomaly_score),
+    detection_method: record(raw.trigger_detection).detector_available === false ? 'rules' : 'ml',
+    correction_applied: record(raw.correction_applied).simulation_only === true ? {
+      simulation_only: true,
+      tick: number(record(raw.correction_applied).tick),
+      actions_applied: Array.isArray(record(raw.correction_applied).actions_applied)
+        ? (record(raw.correction_applied).actions_applied as unknown[]).map((action) => {
+          const item = record(action)
+          return { label: text(item.label) ?? 'Simulation action', detail: text(item.detail) ?? 'Details unavailable.' }
+        }) : [],
+    } : undefined,
+    timestamp: created, started_at: created, title: `Incident ${String(raw.local_id ?? raw.id ?? '')}`,
   }
 }
 
@@ -106,10 +144,13 @@ function mapIncidentDetail(item: unknown): IncidentDetail {
   }) : []
   const timeline = Array.isArray(raw.timeline) ? raw.timeline.map((item) => {
     const event = record(item)
-    return { ...event, event: text(event.event), simulation_time: number(event.elapsed_seconds), timestamp: number(event.tick) === undefined ? undefined : `Tick ${event.tick}` }
-  }) : []
+    return { ...event, tick: number(event.tick), event: text(event.event), simulation_time: number(event.elapsed_seconds),
+      nodes: Array.isArray(event.nodes) ? event.nodes.filter((node): node is string => typeof node === 'string') : [],
+      evidence_id: text(event.evidence_id), signal: text(event.signal), timestamp: number(event.tick) === undefined ? undefined : `Tick ${event.tick}` }
+  }).sort((a, b) => (a.tick ?? a.simulation_time ?? 0) - (b.tick ?? b.simulation_time ?? 0)) : []
   const graph = record(raw.graph)
   return { ...base, summary: text(record(explanation).likely_source), candidates,
+    graph: Array.isArray(graph.nodes) ? normalizeGraph(graph as unknown as IncidentGraph) : undefined,
     evidence: describedEvidence.length ? describedEvidence : evidence, residual_checks: residualChecks,
     timeline, diagnostic_checks: Array.isArray(explanation.diagnostic_checks) ? explanation.diagnostic_checks.filter((item): item is string => typeof item === 'string') : [],
     affected_components: Array.isArray(graph.potentially_affected_nodes) ? graph.potentially_affected_nodes.filter((value): value is string => typeof value === 'string') : [],
@@ -164,6 +205,25 @@ function mapModelMetrics(rawValue: unknown): ModelMetrics {
 }
 
 export const api = {
+  getCurrentUser: async (): Promise<AuthUser | null> => {
+    const raw = record(await data<unknown>('/api/auth/me'))
+    const user = record(raw.user)
+    return raw.authenticated === true && typeof user.id === 'string' && typeof user.email === 'string' && typeof user.name === 'string'
+      ? { id: user.id, email: user.email, name: user.name } : null
+  },
+  login: async (email: string, password: string): Promise<AuthUser> => {
+    const raw = record(await post<unknown>('/api/auth/login', { email, password }))
+    const user = record(raw.user)
+    if (typeof user.id !== 'string' || typeof user.email !== 'string' || typeof user.name !== 'string') throw new ApiError('The backend did not return a signed-in account.', 502)
+    return { id: user.id, email: user.email, name: user.name }
+  },
+  createAccount: async (name: string, email: string, password: string): Promise<AuthUser> => {
+    const raw = record(await post<unknown>('/api/auth/register', { name, email, password }))
+    const user = record(raw.user)
+    if (typeof user.id !== 'string' || typeof user.email !== 'string' || typeof user.name !== 'string') throw new ApiError('The backend did not return the created account.', 502)
+    return { id: user.id, email: user.email, name: user.name }
+  },
+  logout: async (): Promise<void> => { await post('/api/auth/logout') },
   getHealth: async (): Promise<HealthResponse> => {
     const raw = record(await data<unknown>('/api/health'))
     const models = record(raw.models), available = Object.values(models).some((model) => record(model).available === true)
@@ -177,11 +237,17 @@ export const api = {
     const operated = record(record(sustainability.comparison).operated)
     const fraction = number(operated.renewable_delivery_fraction_of_generated)
     const anomaly = record(raw.anomaly), source = record(raw.source)
+    const anomalyModelAvailable = record(record(raw.models).anomaly).available === true
+    const ruleStatus = text(anomaly.rule_status)
+    const anomalyStatus = anomalyModelAvailable ? text(anomaly.combined_status) ?? 'unknown'
+      : ruleStatus === 'warning' ? 'warning' : 'unknown'
     const incidentListing = record(incidentValue)
     return {
+      run_id: text(raw.run_id),
       status: raw.running === true ? 'running' : 'paused', simulation_status: raw.running === true ? 'running' : 'paused',
       simulation_time_seconds: number(raw.simulated_seconds), sim_time_seconds: number(raw.simulated_seconds), next_tick: number(raw.next_tick),
-      anomaly_status: text(anomaly.combined_status) ?? 'unknown', anomaly: { status: text(anomaly.combined_status), score: number(anomaly.anomaly_score), source: text(source.predicted_source) },
+      anomaly_status: anomalyStatus, anomaly: { status: anomalyStatus,
+        score: anomaly.detector_available === false ? undefined : number(anomaly.anomaly_score), source: text(source.predicted_source) },
       model_status: Object.values(record(raw.models)).some((model) => record(model).available === true) ? 'available' : 'unavailable',
       backend_status: text(raw.runtime_error) ?? 'ok',
       metrics: {
@@ -190,7 +256,11 @@ export const api = {
         renewable_utilization_pct: fraction === undefined ? undefined : fraction * 100,
         unmet_demand_kwh: number(operated.unmet_demand_kwh), active_incidents: number(incidentListing.total),
       },
-      components: topologyValue.nodes.map((node) => ({ id: node.id, name: node.label ?? node.id, status: 'unknown' })),
+      components: topologyValue.nodes.map((node) => {
+        const fields = componentTelemetryFields(node.id, node.type)
+        const observed = Object.fromEntries(fields.filter((field) => telemetry[field] !== undefined && telemetry[field] !== null).map((field) => [field, telemetry[field]]))
+        return { id: node.id, name: node.label ?? node.id, status: Object.keys(observed).length ? 'reporting' : 'unknown', telemetry: observed }
+      }),
     }
   },
   getTopology: async (): Promise<TopologyResponse> => data<TopologyResponse>('/api/system/topology'),
@@ -206,32 +276,50 @@ export const api = {
   injectFault: async (payload: FaultPayload): Promise<SimulationActionResponse> => {
     const mode = faultModes[payload.scenario]
     if (!mode) throw new ApiError('Choose a fault scenario before injecting a fault.', 422)
-    const start = Math.max(0, Math.floor(payload.start_tick))
-    const raw = record(await post('/api/simulation/inject-fault', { ...mode, severity: payload.severity, start_tick: start, duration_ticks: Math.max(1, Math.min(120, 10000 - start)) }))
+    const start = payload.start_tick === undefined ? undefined : Math.max(0, Math.floor(payload.start_tick))
+    const raw = record(await post('/api/simulation/inject-fault', {
+      ...mode,
+      severity: payload.severity,
+      ...(start === undefined ? {} : { start_tick: start }),
+      duration_ticks: Math.max(1, Math.min(120, 10000 - (start ?? 0))),
+    }))
     return { ...raw, message: 'Fault scheduled as simulated ground truth; it is not a model prediction.' }
   },
+  injectAttack: (payload: AttackPayload): Promise<AttackScheduleResponse> => post('/api/simulation/inject-attack', payload),
   setSpeed: async (speed: number): Promise<SimulationActionResponse> => record(await post('/api/simulation/speed', { speed })),
-  applyCorrection: async (_incidentId: string | number): Promise<SimulationActionResponse> => { await post('/api/simulation/correct'); return { message: 'Simulated correction applied.' } },
+  applyCorrection: async (_incidentId: string | number): Promise<SimulationActionResponse> => {
+    const raw = record(await post<unknown>('/api/simulation/correct'))
+    const actions = Array.isArray(raw.actions_applied) ? raw.actions_applied.map((action) => {
+      const item = record(action)
+      return { label: text(item.label) ?? 'Simulation action', detail: text(item.detail) ?? 'Details unavailable.' }
+    }) : undefined
+    return { correction_applied: raw.correction_applied === true, correction_tick: number(raw.correction_tick),
+      actions_applied: actions, resolved_incident_ids: Array.isArray(raw.resolved_incident_ids) ? raw.resolved_incident_ids.map(String) : undefined,
+      message: raw.correction_applied === true ? 'The simulator applied the correction and marked the incident handled.' : undefined }
+  },
   getTelemetry: async (afterTick = -1, limit = 360): Promise<TelemetryBatch> => {
     const raw = record(await data<unknown>(`/api/telemetry?after_tick=${afterTick}&limit=${limit}`))
     const items = Array.isArray(raw.items) ? raw.items.map(mapTelemetry) : []
     return { run_id: text(raw.run_id) ?? 'unknown', items, next_after_tick: number(raw.next_after_tick) ?? afterTick }
   },
-  getEvents: async (limit = 12): Promise<EventRecord[]> => {
-    const raw = record(await data<unknown>(`/api/events?limit=${limit}`))
+  getEvents: async (limit = 12, runId?: string): Promise<EventRecord[]> => {
+    const query = new URLSearchParams({ limit: String(limit) })
+    if (runId) query.set('run_id', runId)
+    const raw = record(await data<unknown>(`/api/events?${query.toString()}`))
     return Array.isArray(raw.items) ? raw.items.map((item) => { const event = record(item); return { ...event, timestamp: text(event.created_at), simulation_time: number(event.tick), event: text(event.event) } }) : []
   },
   getIncidents: async (): Promise<IncidentSummary[]> => {
     const raw = record(await data<unknown>('/api/incidents?limit=100'))
     return Array.isArray(raw.items) ? raw.items.map(mapIncident) : []
   },
+  getActiveIncidents: async (): Promise<IncidentSummary[]> => {
+    const raw = record(await data<unknown>('/api/incidents?status=open&limit=100'))
+    return Array.isArray(raw.items) ? raw.items.map(mapIncident) : []
+  },
   getIncident: async (id: string | number): Promise<IncidentDetail> => mapIncidentDetail(await data<unknown>(`/api/incidents/${encodeURIComponent(String(id))}`)),
   getIncidentGraph: async (id: string | number): Promise<IncidentGraph> => {
     const graph = await data<IncidentGraph>(`/api/incidents/${encodeURIComponent(String(id))}/graph`)
-    return { ...graph, nodes: graph.nodes.map((node) => {
-      const history = node.telemetry as unknown
-      return { ...node, telemetry: Array.isArray(history) ? record(history.at(-1)) : record(history) }
-    }) }
+    return normalizeGraph(graph)
   },
   getSustainability: async (): Promise<SustainabilityResponse> => {
     const raw = record(await data<unknown>('/api/metrics/sustainability'))
@@ -262,6 +350,14 @@ export const api = {
     if (!response.ok) throw new ApiError(`Export failed (${response.status}).`, response.status)
     return response.blob()
   },
+}
+
+function normalizeGraph(graph: IncidentGraph): IncidentGraph {
+  return { ...graph, affected_downstream: graph.affected_downstream ?? [...new Set([...(graph.potentially_affected_nodes ?? []), ...graph.nodes.filter((node) => node.security_potentially_affected).map((node) => node.id)])],
+    nodes: graph.nodes.map((node) => {
+      const history = node.telemetry as unknown
+      return { ...node, telemetry: Array.isArray(history) ? record(history.at(-1)) : record(history) }
+    }) }
 }
 
 function normalizeLedger(value: JsonRecord): Record<string, number | null> {

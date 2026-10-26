@@ -1,17 +1,17 @@
 import { useEffect, useState } from 'react'
-import { Activity, AlertTriangle, Bot, ChartNoAxesCombined, ChevronRight, CircleDot, Leaf, Menu, RadioTower, Zap } from 'lucide-react'
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { Activity, AlertTriangle, Bot, ChartNoAxesCombined, ChevronRight, CircleDot, LogOut, Menu, RadioTower, Zap } from 'lucide-react'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../../services/api'
 import { getSeverity } from '../../utils/status'
 import { useApiResource } from '../../hooks/useApiResource'
 import { Badge } from '../ui'
 import { ThemeToggle } from '../ui/ThemeToggle'
+import { useAuth } from '../../context/AuthContext'
 
 const routes = [
   { to: '/', label: 'System overview', icon: RadioTower, end: true },
   { to: '/simulation', label: 'Live simulation', icon: Activity },
   { to: '/investigation', label: 'Fault investigation', icon: AlertTriangle },
-  { to: '/sustainability', label: 'Sustainability', icon: Leaf },
   { to: '/incidents', label: 'Incident history', icon: CircleDot },
   { to: '/evaluation', label: 'Model evaluation', icon: ChartNoAxesCombined },
 ]
@@ -20,7 +20,6 @@ const titles: Record<string, string> = {
   '/': 'System overview',
   '/simulation': 'Live simulation',
   '/investigation': 'Fault investigation',
-  '/sustainability': 'Sustainability',
   '/incidents': 'Incident history',
   '/evaluation': 'Model evaluation',
 }
@@ -37,6 +36,8 @@ function timeLabel(value?: string | number, seconds?: number): string {
 
 export function AppShell() {
   const location = useLocation()
+  const navigate = useNavigate()
+  const { user, logout } = useAuth()
   const [navOpen, setNavOpen] = useState(false)
   useEffect(() => setNavOpen(false), [location.pathname])
   const health = useApiResource('shell-health', api.getHealth, 15_000)
@@ -78,6 +79,7 @@ export function AppShell() {
             <Badge severity={getSeverity(simStatus)}>{simStatus?.toUpperCase() ?? 'STATUS UNKNOWN'}</Badge>
             <Badge severity={getSeverity(anomalyStatus)}><AlertTriangle size={12} aria-hidden="true" />ANOMALY {anomalyStatus?.toUpperCase() ?? 'UNKNOWN'}</Badge>
             <span className="health-chip" title="Model health"><Bot size={14} aria-hidden="true" /><span>MODEL</span><b>{modelStatus?.toUpperCase() ?? 'UNKNOWN'}</b></span>
+            <button className="logout-button" onClick={() => { logout(); navigate('/welcome', { replace: true }) }} aria-label={`Sign out${user?.name ? `, ${user.name}` : ''}`}><LogOut size={14} aria-hidden="true" /><span>Sign out</span></button>
             <ThemeToggle />
             <button className="mobile-menu" aria-label="Toggle navigation" aria-expanded={navOpen} onClick={() => setNavOpen((open) => !open)}><Menu size={18} /></button>
           </div>

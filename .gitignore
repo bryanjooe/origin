@@ -5,5 +5,7 @@ __pycache__/
 outputs/
 node_modules/
 dist/
+.vite/
+.DS_Store
 .env.local
 .env.*.local

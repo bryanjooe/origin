@@ -1,7 +1,7 @@
 import { useApiResource } from '../hooks/useApiResource'
 import { useLiveTelemetry } from '../hooks/useLiveTelemetry'
 import { api } from '../services/api'
-import type { EventRecord, IncidentSummary, TopologyResponse } from '../types/domain'
+import type { EventRecord, TopologyResponse } from '../types/domain'
 import { normalizeTelemetry, readMetric } from '../utils/data'
 import { TimeSeriesChart } from '../components/charts/TimeSeriesChart'
 import { DependencyGraph } from '../components/system/DependencyGraph'
@@ -11,8 +11,7 @@ import { getSeverity, simulationLabel } from '../utils/status'
 export function OverviewPage() {
   const system = useApiResource('overview-system', api.getSystemState, 5_000)
   const topology = useApiResource<TopologyResponse>('overview-topology', api.getTopology)
-  const events = useApiResource<EventRecord[]>('overview-events', () => api.getEvents(8), 10_000)
-  const incidents = useApiResource<IncidentSummary[]>('overview-incidents', api.getIncidents, 10_000)
+  const events = useApiResource<EventRecord[]>(`overview-events-${system.data?.run_id ?? 'active'}`, () => api.getEvents(8, system.data?.run_id), 10_000, !!system.data?.run_id)
   const { points, stream, error: telemetryError } = useLiveTelemetry()
   const metrics = system.data?.metrics
   const activeCount = readMetric(metrics, 'active_incidents') ?? system.data?.active_incidents
@@ -41,17 +40,16 @@ export function OverviewPage() {
           {telemetryError && !normalized.length ? <EmptyState title="Telemetry unavailable" detail={telemetryError} kind="error" /> : <TimeSeriesChart data={normalized} unit="kW" series={[{ key: 'solar_generation_kw', label: 'Solar', color: 'var(--chart-solar)' }, { key: 'demand_kw', label: 'Demand', color: 'var(--chart-demand)' }, { key: 'delivered_kw', label: 'Delivered', color: 'var(--chart-delivered)' }]} />}
         </Card>
         <Card title="Storage and anomaly signal" eyebrow="TELEMETRY / STATE" action={<span className="micro-label">API VALUES ONLY</span>}>
-          {telemetryError && !normalized.length ? <EmptyState title="Telemetry unavailable" detail={telemetryError} kind="error" /> : <TimeSeriesChart data={normalized} unit="% / score" series={[{ key: 'battery_soc_pct', label: 'Battery SoC', color: 'var(--chart-delivered)' }, { key: 'anomaly_score', label: 'Model anomaly score', color: 'var(--chart-anomaly)' }]} />}
+          {telemetryError && !normalized.length ? <EmptyState title="Telemetry unavailable" detail={telemetryError} kind="error" /> : <TimeSeriesChart data={normalized} unit="%" series={[{ key: 'battery_soc_pct', label: 'Battery SoC', color: 'var(--chart-delivered)', unit: '%', axis: 'left' }, { key: 'anomaly_score', label: 'Model anomaly score', color: 'var(--chart-anomaly)', unit: 'score', axis: 'right' }]} />}
         </Card>
       </div>
 
       <div className="two-column-grid overview-bottom">
         <Card title="Microgrid components" eyebrow="TOPOLOGY / DEPENDENCIES" action={topology.data && <span className="micro-label">{topology.data.nodes.length} COMPONENTS</span>}>
-          {topology.loading && !topology.data ? <EmptyState title="Loading topology" kind="loading" /> : topology.error ? <EmptyState title="Topology unavailable" detail={topology.error} kind="error" action={<Button onClick={topology.reload}>Retry</Button>} /> : topology.data?.nodes.length ? <><DependencyGraph nodes={topology.data.nodes} edges={topology.data.edges} height={255} /><p className="graph-note">Solid links show known dependencies. Dashed amber links mark suspected propagation paths.</p></> : <EmptyState title="No topology data" detail="The topology endpoint returned no components." kind="unknown" />}
+          {topology.loading && !topology.data ? <EmptyState title="Loading topology" kind="loading" /> : topology.error ? <EmptyState title="Topology unavailable" detail={topology.error} kind="error" action={<Button onClick={topology.reload}>Retry</Button>} /> : topology.data?.nodes.length ? <><DependencyGraph nodes={topology.data.nodes} edges={topology.data.edges} height={390} /><p className="graph-note">Solid links show known dependencies. Dashed amber links mark suspected propagation paths.</p></> : <EmptyState title="No topology data" detail="The topology endpoint returned no components." kind="unknown" />}
         </Card>
         <Card title="Recent events" eyebrow="EVENT STREAM" action={<span className="micro-label">{events.data?.length ?? '—'} EVENTS</span>}>
           {events.loading && !events.data ? <EmptyState title="Loading recent events" kind="loading" /> : events.error ? <EmptyState title="Events unavailable" detail={events.error} kind="error" action={<Button onClick={events.reload}>Retry</Button>} /> : events.data?.length ? <EventList events={events.data} /> : <EmptyState title="No recent events" detail="No events were returned for the current simulation." />}
-          {incidents.error && <p className="muted-small">Incident count unavailable: {incidents.error}</p>}
         </Card>
       </div>
       <div className="data-footnote">Health, telemetry and incident values come from the API. A dash means the backend did not return that metric.</div>
@@ -61,8 +59,16 @@ export function OverviewPage() {
 
 function EventList({ events }: { events: EventRecord[] }) {
   return <div className="event-list">{events.map((event, index) => {
-    const title = event.message ?? event.description ?? event.event ?? event.type ?? 'Event'
+    const eventName = (event.event ?? event.type ?? 'event').toLowerCase()
+    const labels: Record<string, string> = {
+      scenario_created: 'Simulation scenario created', simulation_started: 'Simulation started',
+      simulation_paused: 'Simulation paused', simulation_resumed: 'Simulation resumed',
+      simulation_reset: 'Simulation reset', scenario_transition: 'Scenario changed',
+      incident_opened: 'Anomaly detected · incident opened', incident_resolved: 'Incident resolved',
+      fault_injected: 'Simulated fault injected', attack_injected: 'Simulated attack scheduled',
+    }
+    const title = event.message ?? event.description ?? labels[eventName] ?? eventName.replaceAll('_', ' ')
     const severity = getSeverity(event.severity)
-    return <div className="event-row" key={event.id ?? `${event.timestamp ?? event.time}-${index}`}><span className={`event-marker marker-${severity}`} aria-hidden="true" /><div className="event-copy"><strong>{title}</strong><small>{event.timestamp ?? event.time ?? (event.simulation_time !== undefined ? `Tick ${event.simulation_time}` : 'Time unavailable')}</small></div><Badge severity={severity}>{event.severity?.toUpperCase() ?? 'UNCLASSIFIED'}</Badge></div>
+    return <div className="event-row" key={event.id ?? `${event.timestamp ?? event.time}-${index}`}><span className={`event-marker marker-${severity}`} aria-hidden="true" /><div className="event-copy"><strong>{title}</strong><small>{event.timestamp ?? event.time ?? (event.tick !== undefined ? `Tick ${event.tick}` : 'Time unavailable')}</small></div><Badge severity={severity}>{event.severity?.toUpperCase() ?? 'EVENT'}</Badge></div>
   })}</div>
 }

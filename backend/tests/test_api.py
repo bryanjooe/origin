@@ -236,3 +236,144 @@ def test_sqlite_crash_recovery_marks_open_history_interrupted(workspace_tmp_path
     reopened.recover_interrupted()
     assert reopened.scenario("run")["status"] == "interrupted"
     reopened.close()
+
+
+def attack_body(**changes):
+    return {"attack_type": "actuator_abuse", "target_component": "inverter",
+            "severity": 1.0, "duration_ticks": 10, "stealth_level": "naive", **changes}
+
+
+@pytest.mark.parametrize("kind,target", [
+    ("sensor_spoof", "solar_sensor"), ("replay", "communication"),
+    ("communication_degradation", "communication"), ("message_tampering", "communication"),
+    ("controller_compromise", "controller"), ("firmware_tampering", "firmware"),
+    ("actuator_abuse", "inverter"), ("multi_stage", "communication"),
+])
+def test_existing_attack_types_schedule_and_advance_via_api(client, kind, target):
+    result = data(client.post("/api/simulation/inject-attack", json=attack_body(
+        attack_type=kind, target_component=target, start_tick=2, duration_ticks=12)))
+    assert result["scheduled"]["attack_type"] == kind
+    state = data(client.post("/api/simulation/step", json={"ticks": 14}))
+    assert state["next_tick"] == 14 and state["runtime_error"] is None
+    runtime = client.app.state.runtime
+    assert runtime.sim.history[:2] == runtime.baseline.history[:2]
+    assert runtime.sim.history[2:] != runtime.baseline.history[2:]
+    assert runtime.sim.history == runtime.uncorrected.history
+    assert runtime.baseline.attacks.ground_truth() == []
+
+
+@pytest.mark.parametrize("changes", [
+    {"attack_type": "invalid"}, {"target_component": "controller"},
+    {"target_component": "unknown"}, {"severity": 0}, {"severity": -0.1},
+    {"severity": 1.1}, {"duration_ticks": 0}, {"duration_ticks": -1},
+    {"duration_ticks": True}, {"duration_ticks": 1.5}, {"start_tick": -1},
+    {"start_tick": True}, {"stealth_level": "invalid"}, {"unexpected": True},
+])
+def test_attack_request_validation_preserves_state(client, changes):
+    runtime = client.app.state.runtime
+    before = runtime.metadata()
+    events = data(client.get("/api/events"))
+    response = client.post("/api/simulation/inject-attack", json=attack_body(**changes))
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+    assert runtime.metadata() == before
+    assert data(client.get("/api/events")) == events
+
+
+def test_attack_schedule_past_overlap_limits_and_atomic_comparisons(client):
+    runtime = client.app.state.runtime
+    runtime.settings.max_ticks = 20
+    data(client.post("/api/simulation/step", json={"ticks": 2}))
+    for changes in ({"start_tick": 1}, {"start_tick": 19, "duration_ticks": 2}):
+        before = runtime.metadata()
+        assert client.post("/api/simulation/inject-attack", json=attack_body(**changes)).status_code == 422
+        assert runtime.metadata() == before
+    result = data(client.post("/api/simulation/inject-attack", json=attack_body()))
+    assert result["scheduled"]["start_tick"] == 2
+    assert "not a model prediction" in result["label"]
+    data(client.post("/api/simulation/correct"))
+    # The operated schedule is empty, but the counterfactual still conflicts.
+    before = runtime.metadata()
+    assert client.post("/api/simulation/inject-attack", json=attack_body(start_tick=5)).status_code == 422
+    assert runtime.metadata() == before
+    assert runtime.sim.attacks.at(5) is None
+    data(client.post("/api/simulation/inject-attack", json=attack_body(start_tick=12, duration_ticks=8)))
+    data(client.post("/api/simulation/step", json={"ticks": 18}))
+    assert runtime.sim.tick == runtime.baseline.tick == runtime.uncorrected.tick == 20
+    before = runtime.metadata()
+    assert client.post("/api/simulation/inject-attack", json=attack_body()).status_code == 422
+    assert runtime.metadata() == before
+
+
+def test_attack_telemetry_correction_reset_and_ground_truth_separation(client, monkeypatch):
+    runtime = client.app.state.runtime
+    observed = []
+    # Inspect the actual rows delivered to both existing inference extractors.
+    for extractor in (runtime.extractor, runtime.source_extractor):
+        original = extractor.update
+
+        def capture(row, update=original):
+            observed.append(row)
+            return update(row)
+
+        monkeypatch.setattr(extractor, "update", capture)
+    data(client.post("/api/simulation/inject-attack", json=attack_body(start_tick=3)))
+    data(client.post("/api/simulation/step", json={"ticks": 7}))
+    assert runtime.sim.history[:3] == runtime.baseline.history[:3]
+    assert runtime.sim.history == runtime.uncorrected.history
+    assert runtime.sim.history[3]["inverter_actual_kw"] == 0
+    assert runtime.baseline.history[3]["inverter_actual_kw"] > 0
+    assert runtime.baseline.attacks.ground_truth() == []
+    assert runtime.baseline.faults.ground_truth() == []
+    assert len(observed) == 14
+    forbidden = {"attack", "attack_type", "target_component", "stealth_level", "ground_truth"}
+
+    def check_labels(value):
+        if isinstance(value, dict):
+            assert not forbidden.intersection(value)
+            for child in value.values():
+                check_labels(child)
+        elif isinstance(value, list):
+            for child in value:
+                check_labels(child)
+
+    check_labels(observed)
+    check_labels(data(client.get("/api/system/state")))
+    items = data(client.get("/api/telemetry"))["items"]
+    check_labels(items)
+    assert all(item["anomaly"] is None and item["source"] is None for item in items)
+    assert data(client.get("/api/incidents"))["total"] == 0
+    truth = data(client.get("/api/simulation/scenario"))["metadata"]["ground_truth"]
+    assert truth["attacks"][0]["attack_type"] == "actuator_abuse"
+    data(client.post("/api/simulation/correct"))
+    data(client.post("/api/simulation/step", json={"ticks": 3}))
+    assert runtime.sim.attacks.at(7) is None
+    assert runtime.uncorrected.attacks.at(7) is not None
+    assert runtime.sim.history[-1]["inverter_actual_kw"] > 0
+    assert runtime.uncorrected.history[-1]["inverter_actual_kw"] == 0
+    assert runtime.sim.attacks.ground_truth()[0]["cancelled_at_tick"] == 7
+    metrics = data(client.get("/api/metrics/sustainability"))
+    assert metrics["estimated_correction_delivery_gain_kwh"] > 0
+    assert all(abs(item["energy_balance_residual_kwh"]) < 1e-8 for item in metrics["comparison"].values())
+    old_run = runtime.run_id
+    data(client.post("/api/simulation/reset"))
+    assert all(sim.attacks.ground_truth() == [] for sim in (runtime.sim, runtime.baseline, runtime.uncorrected))
+    archived = data(client.get("/api/scenarios"))
+    assert next(item for item in archived if item["id"] == old_run)["metadata"]["ground_truth"]["attacks"]
+    data(client.post("/api/simulation/inject-fault", json={"kind": "inverter", "mode": "shutdown"}))
+    state = data(client.post("/api/simulation/step", json={"ticks": 2}))
+    assert state["next_tick"] == 2 and state["telemetry"]["inverter_actual_kw"] == 0
+
+
+def test_attack_injection_during_running_simulation_uses_existing_worker(client):
+    data(client.post("/api/simulation/start", json={"speed": 30}))
+    runtime = client.app.state.runtime
+    worker = runtime.task
+    result = data(client.post("/api/simulation/inject-attack", json=attack_body(start_tick=100)))
+    paused = data(client.post("/api/simulation/pause"))
+    assert paused["next_tick"] < 100
+    assert result["scheduled"]["start_tick"] == 100
+    assert runtime.task is worker
+    data(client.post("/api/simulation/step", json={"ticks": 101 - paused["next_tick"]}))
+    assert runtime.sim.history[100]["inverter_actual_kw"] == 0
+    assert runtime.baseline.history[100]["inverter_actual_kw"] > 0

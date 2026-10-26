@@ -73,12 +73,31 @@ class MicrogridSimulator:
 
     def correct(self):
         """Restore simulated components and flush corrupted/stale queued messages."""
+        active_faults = [item for item in self.faults.ground_truth()
+                         if item["cancelled_at_tick"] is None
+                         and item["start_tick"] <= self.tick < item["start_tick"] + item["duration_ticks"]]
+        active_attacks = [item for item in self.attacks.ground_truth()
+                          if item["cancelled_at_tick"] is None
+                          and item["start_tick"] <= self.tick < item["start_tick"] + item["duration_ticks"]]
+        pending_messages = len(self._pending)
+        stale_message_cleared = self._latest is not None or self._stuck is not None
         self.faults.cancel_all(self.tick)
         self.attacks.cancel_all(self.tick)
         self._pending.clear()
         self._latest = None
         self._stuck = None
-        self.events.append({"tick": self.tick, "event": "simulated_correction"})
+        actions = []
+        if active_faults:
+            actions.append({"label": "Cancelled active simulated fault", "detail": f"{len(active_faults)} scheduled fault(s) stopped at tick {self.tick}."})
+        if active_attacks:
+            actions.append({"label": "Cancelled active simulated attack", "detail": f"{len(active_attacks)} scheduled attack(s) stopped at tick {self.tick}."})
+        if pending_messages or stale_message_cleared:
+            actions.append({"label": "Cleared stale communication state", "detail": f"{pending_messages} queued message(s) flushed; cached communication state reset."})
+        if not actions:
+            actions.append({"label": "Simulation state restored", "detail": "No active injected fault, attack, or stale communication state remained at the time of correction."})
+        result = {"correction_tick": self.tick, "actions_applied": actions}
+        self.events.append({"tick": self.tick, "event": "simulated_correction", **result})
+        return result
 
     def run(self, ticks: int) -> list[dict]:
         if type(ticks) is not int or ticks < 0:

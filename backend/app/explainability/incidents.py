@@ -40,14 +40,19 @@ def detection_record(value):
     record = {key: deepcopy(value[key]) for key in (
         "tick", "elapsed_seconds", "anomaly_score", "ml_status", "combined_status",
         "warning_threshold", "critical_threshold", "residual_checks")}
+    record["detector_available"] = value.get("detector_available", True)
     score = record["anomaly_score"]
     if not isinstance(score, (int, float)) or not math.isfinite(score) or not 0 <= score <= 1:
         raise ValueError("Anomaly score must be finite and in [0, 1]")
     if not 0 < record["warning_threshold"] < record["critical_threshold"] <= 1:
         raise ValueError("Invalid anomaly thresholds")
-    for key in ("ml_status", "combined_status"):
-        if record[key] not in ("normal", "warning", "critical"):
-            raise ValueError("Unsupported anomaly status")
+    if type(record.get("detector_available", True)) is not bool:
+        raise ValueError("detector_available must be a boolean")
+    allowed_ml = ("normal", "warning", "critical") if record.get("detector_available", True) else ("unavailable",)
+    if record["ml_status"] not in allowed_ml:
+        raise ValueError("Unsupported ML detector status")
+    if record["combined_status"] not in ("normal", "warning", "critical"):
+        raise ValueError("Unsupported combined anomaly status")
     record["residual_checks"] = [{key: check[key] for key in ("signal", "value", "threshold", "unit", "method")}
                                  for check in record["residual_checks"]]
     return record

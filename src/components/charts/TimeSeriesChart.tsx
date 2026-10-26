@@ -16,6 +16,8 @@ export interface ChartSeries {
   key: keyof TelemetryPoint | string
   label: string
   color: string
+  axis?: 'left' | 'right'
+  unit?: string
 }
 
 export function TimeSeriesChart({
@@ -43,15 +45,16 @@ export function TimeSeriesChart({
   if (!available.length) return <EmptyState title="No chartable series" detail="The telemetry response does not include these fields." kind="unknown" />
 
   return (
-    <div className="chart-container" style={{ height }} role="img" aria-label={`Time series chart showing ${available.map((item) => item.label).join(', ')} in ${unit}`}>
+    <div className="chart-container" style={{ height }} role="img" aria-label={`Time series chart showing ${available.map((item) => `${item.label} (${item.unit ?? unit})`).join(', ')}`}>
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={chartData} margin={{ top: 10, right: 10, bottom: 0, left: -16 }}>
           <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="2 5" vertical={false} />
           <XAxis dataKey="__time" minTickGap={36} tick={{ fill: 'var(--chart-label)', fontSize: 9, fontFamily: 'var(--mono)' }} axisLine={{ stroke: 'var(--chart-axis)' }} tickLine={false} />
-          <YAxis unit={` ${unit}`} width={62} tick={{ fill: 'var(--chart-label)', fontSize: 9, fontFamily: 'var(--mono)' }} axisLine={false} tickLine={false} />
-          <Tooltip contentStyle={{ background: 'var(--paper-bright)', border: '1px solid var(--line-strong)', borderRadius: 0, color: 'var(--ink)', fontSize: 10 }} labelStyle={{ fontFamily: 'var(--mono)' }} />
+          <YAxis yAxisId="left" unit={` ${available.find((item) => (item.axis ?? 'left') === 'left')?.unit ?? unit}`} width={62} tick={{ fill: 'var(--chart-label)', fontSize: 9, fontFamily: 'var(--mono)' }} axisLine={false} tickLine={false} />
+          {available.some((item) => item.axis === 'right') && <YAxis yAxisId="right" orientation="right" unit={` ${available.find((item) => item.axis === 'right')?.unit ?? ''}`} width={58} tick={{ fill: 'var(--chart-label)', fontSize: 9, fontFamily: 'var(--mono)' }} axisLine={false} tickLine={false} />}
+          <Tooltip formatter={(value, name) => { const item = available.find((seriesItem) => seriesItem.label === String(name)); const formatted = typeof value === 'number' ? value.toFixed(2) : String(value ?? '—'); return [`${formatted} ${item?.unit ?? unit}`, String(name)] }} contentStyle={{ background: 'var(--paper-bright)', border: '1px solid var(--line-strong)', borderRadius: 0, color: 'var(--ink)', fontSize: 10 }} labelStyle={{ fontFamily: 'var(--mono)' }} />
           <Legend verticalAlign="top" align="right" height={30} iconType="plainline" wrapperStyle={{ color: 'var(--muted)', fontSize: 9 }} />
-          {available.map((item) => <Line key={item.key} type="monotone" dataKey={item.key} name={item.label} stroke={item.color} strokeWidth={1.8} dot={false} activeDot={{ r: 3 }} isAnimationActive={false} connectNulls={false} />)}
+          {available.map((item) => <Line key={item.key} yAxisId={item.axis ?? 'left'} type="monotone" dataKey={item.key} name={item.label} stroke={item.color} strokeWidth={1.8} dot={false} activeDot={{ r: 3 }} isAnimationActive={false} connectNulls={false} />)}
         </LineChart>
       </ResponsiveContainer>
     </div>

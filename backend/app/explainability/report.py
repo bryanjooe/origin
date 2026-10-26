@@ -20,13 +20,16 @@ def explain(incident, graph):
         latest[item["signal"]] = item
     detection = incident["trigger_detection"]
     flag_reasons = []
-    if detection["ml_status"] in ("warning", "critical"):
+    if detection.get("detector_available", True) and detection["ml_status"] in ("warning", "critical"):
         flag_reasons.append(f"Isolation Forest score {detection['anomaly_score']:.5f} exceeded the "
                             f"warning threshold {detection['warning_threshold']:.5f} at detection.")
     if detection["residual_checks"]:
         flag_reasons.append("Residual-rule checks exceeded their stated limits; these checks are separate from ML.")
     if diagnosis["source"] == "unknown":
-        source_statement = "The likely source is Unknown or insufficient evidence. " + " ".join(diagnosis["reasons"])
+        if not diagnosis.get("source_model_available", True):
+            source_statement = "No model source prediction is available. The origin remains Unknown or insufficient evidence."
+        else:
+            source_statement = "The source classifier abstained; the origin remains Unknown or insufficient evidence. " + " ".join(diagnosis["reasons"])
     else:
         source_statement = (f"At representative alert tick {incident['representative_tick']}, the classifier hypothesis is {DISPLAY_NAMES[diagnosis['source']]} "
                             f"with score {diagnosis['confidence']:.4f} (uncalibrated classifier probability).")

@@ -2,6 +2,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.attack_injection import Attack, AttackType, StealthLevel
 from app.fault_injection import Fault, FaultKind
 from app.simulator import GridConfig
 
@@ -52,6 +53,25 @@ class FaultRequest(RequestModel):
     def fault(self, current_tick):
         return Fault(self.kind, self.mode, current_tick if self.start_tick is None else self.start_tick,
                      self.duration_ticks, self.severity)
+
+
+class AttackRequest(RequestModel):
+    attack_type: AttackType
+    target_component: str
+    severity: float = Field(0.7, gt=0, le=1)
+    duration_ticks: int = Field(30, ge=1, le=10000, strict=True)
+    start_tick: int | None = Field(None, ge=0, le=10000, strict=True)
+    stealth_level: StealthLevel = StealthLevel.MODERATE
+
+    @model_validator(mode="after")
+    def validate_attack(self):
+        self.attack(self.start_tick or 0)
+        return self
+
+    def attack(self, current_tick):
+        return Attack(self.attack_type, self.target_component,
+                      current_tick if self.start_tick is None else self.start_tick,
+                      self.duration_ticks, self.severity, self.stealth_level)
 
 
 class ScenarioRequest(RequestModel):

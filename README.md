@@ -43,7 +43,7 @@ $env:PYTHONPATH = 'backend'
 Start the API and dashboard in separate terminals from this directory:
 
 ```sh
-PYTHONPATH=backend .venv/bin/python -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000 --workers 1
+PYTHONPATH=backend .venv/bin/python -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8001 --workers 1
 ```
 
 ```sh
@@ -54,7 +54,7 @@ Open `http://127.0.0.1:5173/`. Vite forwards `/api` to the local API. The API st
 paused. Use the Live Simulation page to start a seeded run, pause/resume it, schedule
 an injected fault, inspect incidents and apply a simulation-only correction. The API
 uses REST polling; the dashboard polls telemetry with a tick cursor and keeps a
-bounded chart history. API docs are available at `http://127.0.0.1:8000/docs`.
+bounded chart history. API docs are available at `http://127.0.0.1:8001/docs`.
 
 Copy `.env.example` to `.env.local` only when the API is hosted somewhere other than
 the Vite proxy:
@@ -206,19 +206,19 @@ Install the updated requirements, train both models using the Stage 2/3 commands
 then start **one server process with one worker** from the repository root:
 
 ```powershell
-.\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000 --workers 1
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8001 --workers 1
 ```
 
-Open [interactive API documentation](http://127.0.0.1:8000/docs). The server starts
+Open [interactive API documentation](http://127.0.0.1:8001/docs). The server starts
 paused; use Start/Resume for live ticks or Step for deterministic advancement while
 paused. Poll state/telemetry at roughly one-second intervals. Repeated Start calls
 reuse the same worker. Missing models explicitly report unavailable, while physical
 simulation remains usable. No predictions or incidents are fabricated.
 
 ```powershell
-Invoke-RestMethod http://127.0.0.1:8000/api/health
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/api/simulation/start -ContentType application/json -Body '{"speed":2}'
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/api/simulation/pause
+Invoke-RestMethod http://127.0.0.1:8001/api/health
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8001/api/simulation/start -ContentType application/json -Body '{"speed":2}'
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8001/api/simulation/pause
 ```
 
 For a complete measured HTTP demo after training, run in a second terminal:
@@ -252,7 +252,7 @@ npm run dev
 ```
 
 Open **[TraceX GreenGrid](http://127.0.0.1:5173)**. Vite forwards `/api` requests
-to FastAPI on port 8000; no external APIs or paid services are required. If these
+to FastAPI on port 8001; no external APIs or paid services are required. If these
 ports are already serving this project, reuse them instead of starting duplicates.
 Stop foreground development servers with Ctrl+C in their respective terminals.
 
