@@ -157,6 +157,34 @@ or accuracy claim. See [investigation methodology](docs/investigation.md),
 [validation](docs/stage4-validation.md), and
 [measured compact examples](docs/stage4-examples.json).
 
+## Stage B: classify fault versus attack and localize origin layer
+
+Stage B adds an offline nature classifier (Normal / Accidental fault / Cyber attack /
+Undetermined) and an independent origin-layer classifier (Sensor, Communication,
+Controller, Firmware-Config, Actuator-Inverter / Unknown). It does not change the
+existing anomaly detector, source classifier, API, or dashboard. Both new models use
+causal 20-tick telemetry windows that begin at the existing anomaly detector's first
+fire inside the simulated event. Runs with no in-event detector fire remain misses;
+they do not receive a fabricated attribution. Confidence values are uncalibrated
+Random Forest scores and low-confidence results abstain.
+
+```sh
+PYTHONPATH=backend .venv/bin/python -m app.security_analysis \
+  --repeats 3 --ticks 240 --seed 72100 --output-dir outputs/stage4
+```
+
+The generator covers normal runs, all fault modes, all eight attack types, severity,
+start-time and duration variation, and naive/moderate/stealthy attacks. It partitions
+whole runs and seeds before model fitting, and also evaluates a separate test split
+with every stealthy attack held out of training. The command writes
+`outputs/stage4/incident_features.csv`, `metadata.json`, the two evaluation JSON
+reports, `telemetry_audit.json`, and `fault_attack_origin.joblib`. Feature columns are explicitly allowlisted;
+scenario labels and run manifests are stored separately from inference features.
+The security feature extractor rejects telemetry containing attack/fault engine
+records. Attribution evidence is counted from actual telemetry and is described as
+indicators, not proof of intent or a proven root cause. See
+[Stage B methodology and results](docs/stage-b-validation.md).
+
 ## Stage 5: run the local API
 
 Install the updated requirements, train both models using the Stage 2/3 commands,
