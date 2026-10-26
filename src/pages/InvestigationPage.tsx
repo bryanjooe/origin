@@ -5,7 +5,7 @@ import { Badge, Button, Card, EmptyState } from '../components/ui'
 import { getSeverity, simulationLabel } from '../utils/status'
 import { useApiResource } from '../hooks/useApiResource'
 import { api } from '../services/api'
-import type { EventRecord, IncidentDetail, IncidentGraph, IncidentSummary, TopologyNode } from '../types/domain'
+import type { EventRecord, IncidentDetail, IncidentGraph, IncidentSummary, SecurityAttribution, TopologyNode } from '../types/domain'
 import { formatNumber, percent } from '../utils/data'
 
 export function InvestigationPage() {
@@ -96,6 +96,8 @@ function InvestigationDetail({
         </Card>
       </div>
 
+      <SecurityAttributionCard attribution={incident?.security_attribution} loading={detail.loading && !incident} />
+
       <div className="two-column-grid">
         <Card title="Propagation graph" eyebrow="KNOWN DEPENDENCIES / SUSPECTED PATHS" action={<span className="micro-label">SELECT A NODE FOR DETAILS</span>}>
           {graph.loading && !graph.data ? <EmptyState title="Loading propagation graph" kind="loading" /> : graph.error ? <EmptyState title="Propagation graph unavailable" detail={graph.error} kind="error" action={<Button onClick={graph.reload}>Retry</Button>} /> : graph.data?.nodes.length ? <><DependencyGraph nodes={graph.data.nodes} edges={graph.data.edges} onNodeSelect={onSelectNode} selectedNode={selectedNode?.id} height={365} /><div className="graph-legend"><span><i className="solid-key" />Known dependency</span><span><i className="dashed-key" />Suspected propagation</span><small>Suspected paths are uncertain.</small></div></> : <EmptyState title="Graph unavailable" detail="No graph nodes were returned for this incident." kind="unknown" />}
@@ -126,6 +128,30 @@ function InvestigationDetail({
       {selectedNode && <NodeDetail node={selectedNode} onClose={() => onSelectNode(null)} />}
     </>
   )
+}
+
+function SecurityAttributionCard({ attribution, loading }: { attribution?: SecurityAttribution; loading: boolean }) {
+  return <Card title="Fault vs attack assessment" eyebrow="STAGE B / SECURITY CLASSIFIER" className="security-attribution-card">
+    {loading ? <EmptyState title="Loading security assessment" kind="loading" /> : !attribution?.available ? <EmptyState title="Security assessment unavailable" detail={attribution?.reason ?? 'The backend did not return a Stage B prediction for this incident.'} kind="unknown" /> : <>
+      <div className="security-verdict-row">
+        <div><span className="small-label">NATURE · MODEL PREDICTION</span><strong>{attribution.nature_verdict || 'Undetermined'}</strong><p>Confidence {attribution.nature_confidence == null ? 'Unknown' : `${formatNumber(percent(attribution.nature_confidence) ?? attribution.nature_confidence * 100, 1)}%`}</p></div>
+        <div><span className="small-label">ORIGIN LAYER · MODEL PREDICTION</span><strong>{attribution.origin ?? 'Unknown / insufficient evidence'}</strong><p>Confidence {attribution.origin_confidence == null ? 'Unknown' : `${formatNumber(percent(attribution.origin_confidence) ?? attribution.origin_confidence * 100, 1)}%`}</p></div>
+        {attribution.inference_tick !== undefined && <div><span className="small-label">CAUSAL WINDOW</span><strong>{attribution.window_ticks ?? '—'} ticks</strong><p>Inference at tick {attribution.inference_tick}</p></div>}
+      </div>
+      {attribution.origin_candidates?.length ? <div className="candidate-list security-origin-candidates">{attribution.origin_candidates.slice(0, 3).map((candidate, index) => <div className="candidate-row" key={`${candidate.layer}-${index}`}><span className="candidate-rank">0{index + 1}</span><strong>{candidate.layer}</strong><code>{formatNumber(percent(candidate.confidence) ?? candidate.confidence * 100, 1)}%</code></div>)}</div> : null}
+      <p className="uncertainty-note">{attribution.evidence?.statement ?? 'Indicators from observable telemetry are not proof of intent or a proven root cause.'}</p>
+      {attribution.evidence?.uncertainty && <p className="muted-small">{attribution.evidence.uncertainty}</p>}
+      <div className="security-evidence-grid">
+        <AttributionObservations title="Points toward attack" items={attribution.evidence?.points_toward_attack ?? []} />
+        <AttributionObservations title="Points toward fault" items={attribution.evidence?.points_toward_fault ?? []} />
+        <AttributionObservations title="Ambiguous indicators" items={attribution.evidence?.ambiguous ?? []} />
+      </div>
+    </>}
+  </Card>
+}
+
+function AttributionObservations({ title, items }: { title: string; items: NonNullable<SecurityAttribution['evidence']>['ambiguous'] }) {
+  return <section className="security-observations"><h3>{title}</h3>{items?.length ? <ul>{items.map((item, index) => <li key={`${item.name}-${index}`}><span>{item.name}</span><strong>{String(item.value)}{item.unit ? ` ${item.unit}` : ''}</strong></li>)}</ul> : <p className="muted-small">No observations were returned for this category.</p>}</section>
 }
 
 function EvidenceList({ evidence }: { evidence: NonNullable<IncidentDetail['evidence']> }) {

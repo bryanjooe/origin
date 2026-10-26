@@ -65,6 +65,8 @@ the Vite proxy:
 | `ORIGIN_DATABASE` | `outputs/server/greengrid.sqlite3` | Backend incident/event database path. |
 | `ORIGIN_ANOMALY_MODEL` | `outputs/stage2/anomaly.joblib` | Optional trained anomaly detector. |
 | `ORIGIN_SOURCE_MODEL` | `outputs/stage3/source_classifier.joblib` | Optional trained source classifier. |
+| `ORIGIN_SECURITY_MODEL` | `outputs/stage5/held_out_fault_attack_origin.joblib` | Optional Stage B fault/attack and origin-layer classifier. |
+| `ORIGIN_SECURITY_RESULTS` | `outputs/stage5` | Stage B synthetic held-out reports and metadata directory. |
 
 The backend reads `ORIGIN_*` settings from the process environment. Existing
 `TRACEX_*` names remain accepted for compatibility with earlier scripts.
@@ -156,6 +158,47 @@ symptoms without inventing a propagation origin. Stage 4 adds no new model train
 or accuracy claim. See [investigation methodology](docs/investigation.md),
 [validation](docs/stage4-validation.md), and
 [measured compact examples](docs/stage4-examples.json).
+
+## Stage B: classify fault versus attack and localize origin layer
+
+Stage B adds an offline nature classifier (Normal / Accidental fault / Cyber attack /
+Undetermined) and an independent origin-layer classifier (Sensor, Communication,
+Controller, Firmware-Config, Actuator-Inverter / Unknown). It does not change the
+existing anomaly detector or source classifier. The API and dashboard expose Stage B
+held-out reports on Model Evaluation and telemetry-derived attribution on Fault
+Investigation. Both new models use
+causal 20-tick telemetry windows that begin at the existing anomaly detector's first
+fire inside the simulated event. Runs with no in-event detector fire remain misses;
+they do not receive a fabricated attribution. Stage 5 compares Random Forest and
+Gradient Boosting using validation-only macro-F1, selects per split, and sigmoid
+calibrates probabilities on run-disjoint validation windows. Low-confidence results
+abstain; calibration quality is reported on held-out runs.
+
+```sh
+PYTHONPATH=backend .venv/bin/python -m app.security_analysis \
+  --repeats 9 --ticks 240 --seed 72100 --output-dir outputs/stage5
+```
+
+The generator covers normal runs, all fault modes, all eight attack types, severity,
+start-time and duration variation, and naive/moderate/stealthy attacks. It partitions
+whole runs and seeds before model fitting, and also evaluates a separate test split
+with every stealthy attack held out of training. The command writes
+`outputs/stage5/incident_features.csv`, `metadata.json`, the two evaluation JSON
+reports, `telemetry_audit.json`, and `fault_attack_origin.joblib`. Feature columns are explicitly allowlisted;
+scenario labels and run manifests are stored separately from inference features.
+The security feature extractor rejects telemetry containing attack/fault engine
+records. Attribution evidence is counted from actual telemetry and is described as
+indicators, not proof of intent or a proven root cause. See
+[Stage B methodology and results](docs/stage-b-validation.md).
+
+The dashboard's Model Evaluation page shows Stage B held-out nature,
+fault-vs-attack, and origin-layer scores; per-attack and stealth breakdowns;
+stealth-held-out generalization; signal importances; and the comparison with the
+preserved source classifier. Fault Investigation shows a separate security
+assessment with confidence, alternative origin layers, and counted telemetry
+observations. The additive `/api/security/metrics` route serves saved synthetic
+reports. Incident detail computes a causal security window from persisted observable
+telemetry; no fault schedule or attack-engine record enters the prediction.
 
 ## Stage 5: run the local API
 

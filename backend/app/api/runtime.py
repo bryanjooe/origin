@@ -9,6 +9,8 @@ from app.explainability.incidents import IncidentTracker
 from app.localization import LocalizationFeatureExtractor
 from app.simulator import GridConfig, MicrogridSimulator
 from app.sustainability import EnergyLedger
+from app.security_analysis import extract_window
+from app.security_analysis.attribution import build_attribution
 from .models import ModelRegistry
 
 
@@ -89,6 +91,81 @@ class SimulationRuntime:
         for report in reports:
             self._versions[report["id"]] = (report["as_of_tick"], report["status"])
         return reports
+
+    def security_attribution(self, report):
+        """Classify an incident from persisted observable telemetry only."""
+        model = self.models.security_analyzer
+        if model is None:
+            return {"available": False, "nature_verdict": "Undetermined",
+                    "nature_confidence": None, "origin": "Unknown",
+                    "reason": "Security attribution model is not available."}
+        run_id = report.get("run_id")
+        if not run_id:
+            return {"available": False, "nature_verdict": "Undetermined",
+                    "nature_confidence": None, "origin": "Unknown",
+                    "reason": "Incident run identity is unavailable."}
+
+        first_tick = report.get("first_observed_tick", report.get("detection_tick"))
+        if not isinstance(first_tick, int):
+            return {"available": False, "nature_verdict": "Undetermined",
+                    "nature_confidence": None, "origin": "Unknown",
+                    "reason": "Anomaly onset tick is unavailable."}
+        policy = self.models.security_policy
+        if policy is None:
+            return {"available": False, "nature_verdict": "Undetermined",
+                    "nature_confidence": None, "origin": "Unknown",
+                    "reason": "The training-calibrated alert policy is unavailable."}
+        observed_through = report.get("as_of_tick")
+        if not isinstance(observed_through, int):
+            observed_through = first_tick
+        from app.security_analysis.dataset import _first_policy_fire
+        detection_rows = self.store.telemetry(run_id, first_tick - 1,
+                                               max(1, observed_through - first_tick + 1))
+        statuses = [{"tick": item["telemetry"]["tick"],
+                     "anomaly_score": (item.get("anomaly") or {}).get("anomaly_score", 0.0),
+                     "residual_checks": (item.get("anomaly") or {}).get("residual_checks", [])}
+                    for item in detection_rows if item.get("anomaly") is not None]
+        fire_tick = _first_policy_fire(statuses, policy)
+        if fire_tick is None:
+            return {"available": False, "nature_verdict": "Undetermined",
+                    "nature_confidence": None, "origin": "Unknown",
+                    "reason": "The calibrated Stage B alert gate has not fired in this incident window."}
+        inference_tick = min(observed_through, fire_tick + 19)
+        before = self.store.telemetry(run_id, max(-1, fire_tick - 21), 21)
+        after = self.store.telemetry(run_id, fire_tick - 1, 20)
+        baseline = [item["telemetry"] for item in before
+                    if item.get("telemetry", {}).get("tick", inference_tick) < fire_tick]
+        rows = [item["telemetry"] for item in after
+                if fire_tick <= item.get("telemetry", {}).get("tick", -1) <= inference_tick]
+        if not rows:
+            return {"available": False, "nature_verdict": "Undetermined",
+                    "nature_confidence": None, "origin": "Unknown",
+                    "reason": "Insufficient post-alert telemetry for a causal window."}
+
+        scenario = self.store.scenario(run_id) or {}
+        metadata = scenario.get("metadata", {})
+        config_fields = set(GridConfig.__dataclass_fields__)
+        config = GridConfig(**{key: value for key, value in metadata.items() if key in config_fields})
+        try:
+            features = extract_window(rows, solar_capacity_kw=config.solar_capacity_kw,
+            battery_capacity_kwh=config.battery_capacity_kwh, tick_seconds=config.tick_seconds,
+            communication_delay_ticks=config.communication_delay_ticks,
+            charge_efficiency=config.charge_efficiency,
+            discharge_efficiency=config.discharge_efficiency, baseline_rows=baseline)
+            prediction = model.predict_features(features)
+        except (KeyError, TypeError, ValueError) as error:
+            return {"available": False, "nature_verdict": "Undetermined",
+                    "nature_confidence": None, "origin": "Unknown",
+                    "reason": f"Telemetry window could not be evaluated: {error}"}
+        if not prediction.get("available"):
+            return {**prediction, "reason": "The security classifier is not trained."}
+        attribution = build_attribution(rows, prediction)
+        return {**prediction, "nature_verdict": prediction.get("nature", "Undetermined"),
+                "ranked_origin_layers": prediction.get("origin_candidates", []),
+                "evidence": attribution,
+                "inference_tick": inference_tick,
+                "window_ticks": len(rows),
+                "provenance": "observable telemetry only; indicators are not proof of intent"}
 
     def _advance(self):
         row = self.sim.step()
