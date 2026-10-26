@@ -1,10 +1,11 @@
 # TraceX GreenGrid
 
-Software-only renewable microgrid fault-localization project. **Stages 1–3 are
+Software-only renewable microgrid fault-localization project. **Stages 1–4 are
 implemented:** physical simulation, deterministic fault injection, timestamped
 communication, controller logs, dependency topology, and a normal-baseline
 Isolation Forest anomaly detector with separately labeled residual checks, and a
-Random Forest source classifier with confidence-based abstention.
+Random Forest source classifier with confidence-based abstention. Incident reports
+now group alerts, trace evidence-compatible dependency paths and explain observations.
 There is no web server, dashboard, or incident database yet.
 
 ## Setup
@@ -84,6 +85,32 @@ synthetic per-tick classification results, not end-to-end incident performance.
 See [localization methodology](docs/localization.md) and
 [Stage 3 validation](docs/stage3-validation.md).
 
+## Stage 4: investigate an incident
+
+```powershell
+$env:PYTHONPATH = 'backend'
+.\.venv\Scripts\python.exe -m app.simulator --fault inverter --mode derate --severity 0.8 --start 30 --duration 120 --correct-at 110 --anomaly-model outputs/stage2/anomaly.joblib --source-model outputs/stage3/source_classifier.joblib --investigate --output outputs/investigated-inverter
+```
+
+`--investigate` adds `incidents.json` with confirmation/recovery times, ML and
+residual evidence, a symptom timeline, ranked source hypotheses, diagnostic checks,
+and a graph containing component telemetry and events. The anomaly model is
+required; without a source model incidents explicitly report Unknown. Fault labels,
+schedules and hidden physical values are not supplied to the investigation layer.
+
+Three consecutive warning ticks confirm an incident; critical alerts confirm
+immediately. Five consecutive quiet ticks resolve it. The representative diagnosis
+comes from the alert with the largest anomaly score, while the latest alert-time
+diagnosis and changes are retained separately. Resolution means alerts cleared,
+not that a correction is proven to have caused recovery.
+
+Suspected edges cite actual symptom evidence and documented dependencies. They do
+not prove transmission or causation. Unknown-source incidents retain observed
+symptoms without inventing a propagation origin. Stage 4 adds no new model training
+or accuracy claim. See [investigation methodology](docs/investigation.md),
+[validation](docs/stage4-validation.md), and
+[measured compact examples](docs/stage4-examples.json).
+
 ## Structure
 
 ```text
@@ -94,6 +121,7 @@ backend/
     propagation/        # NetworkX dependency graph and downstream traversal
     detection/          # Causal features, normal-only ML, calibration, evaluation
     localization/       # Supervised source classifier, confidence/Unknown, evaluation
+    explainability/     # Incident lifecycle, observed evidence, deterministic explanations
   tests/                # Deterministic physics, faults, graph, export checks
   requirements.txt
 docs/simulation.md      # Equations, units, and limitations

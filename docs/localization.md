@@ -127,6 +127,6 @@ prediction = model.predict([extractor.update(sim.step())])[0]
 
 The simulator's `--source-model` exports per-tick `source_predictions.json`, alone
 or alongside `--anomaly-model`. It does not merge predictions into telemetry or
-scenario truth. Neither unavailable model is silently substituted. Stage 4 incident
-propagation/explanations, API, persistence, frontend and sustainability comparisons
-remain unimplemented.
+scenario truth. Neither unavailable model is silently substituted. Stage 4 now adds
+[incident investigation and propagation explanations](investigation.md). API,
+persistence, frontend and sustainability comparisons remain unimplemented.

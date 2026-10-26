@@ -22,7 +22,10 @@ def main():
     parser.add_argument("--output", type=Path, default=Path("outputs/demo"))
     parser.add_argument("--anomaly-model", type=Path, help="Optional trusted Stage 2 Joblib artifact")
     parser.add_argument("--source-model", type=Path, help="Optional trusted Stage 3 Joblib artifact")
+    parser.add_argument("--investigate", action="store_true", help="Export evidence-grounded incident reports (requires --anomaly-model)")
     args = parser.parse_args()
+    if args.investigate and not args.anomaly_model:
+        parser.error("--investigate requires --anomaly-model; no anomaly predictions will be fabricated")
     if args.ticks < 1:
         parser.error("--ticks must be positive")
     if args.correct_at is not None and not 0 <= args.correct_at < args.ticks:
@@ -80,6 +83,7 @@ def main():
         "nodes": [{"id": node, **data} for node, data in graph.nodes(data=True)],
         "edges": [{"source": a, "target": b, **data} for a, b, data in graph.edges(data=True)],
     }, indent=2), encoding="utf-8")
+    detection = source_predictions = None
     if detector is not None:
         detection = detector.predict(observations)
         (args.output / "anomaly_scores.json").write_text(json.dumps(detection, indent=2), encoding="utf-8")
@@ -87,8 +91,13 @@ def main():
             row for row in detection if row["combined_status"] != "normal"
         ], indent=2), encoding="utf-8")
     if localizer is not None:
+        source_predictions = localizer.predict(source_observations)
         (args.output / "source_predictions.json").write_text(
-            json.dumps(localizer.predict(source_observations), indent=2), encoding="utf-8")
+            json.dumps(source_predictions, indent=2), encoding="utf-8")
+    if args.investigate:
+        from app.explainability.incidents import investigate
+        incidents = investigate(sim.history, detection, source_predictions)
+        (args.output / "incidents.json").write_text(json.dumps(incidents, indent=2, allow_nan=False), encoding="utf-8")
     dt = sim.config.tick_seconds / 3600
     print(json.dumps({"ticks": args.ticks, "seed": args.seed,
                       "solar_generated_kwh": sum(r["actual_solar_kw"] for r in sim.history) * dt,
