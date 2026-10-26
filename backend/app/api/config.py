@@ -16,8 +16,10 @@ class ServerSettings:
     @classmethod
     def from_environment(cls):
         def path(name, default):
-            value = os.environ.get(name, str(default))
+            legacy_name = name.replace("ORIGIN_", "TRACEX_")
+            value = os.environ.get(name, os.environ.get(legacy_name, str(default)))
             return Path(value) if value else None
-        return cls(database_path=os.environ.get("TRACEX_DATABASE", str(cls.database_path)),
-                   anomaly_model=path("TRACEX_ANOMALY_MODEL", cls.anomaly_model),
-                   source_model=path("TRACEX_SOURCE_MODEL", cls.source_model))
+        return cls(database_path=os.environ.get(
+                       "ORIGIN_DATABASE", os.environ.get("TRACEX_DATABASE", str(cls.database_path))),
+                   anomaly_model=path("ORIGIN_ANOMALY_MODEL", cls.anomaly_model),
+                   source_model=path("ORIGIN_SOURCE_MODEL", cls.source_model))

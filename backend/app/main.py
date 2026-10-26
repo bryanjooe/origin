@@ -30,11 +30,11 @@ def create_app(settings: ServerSettings | None = None):
         finally:
             await runtime.close()
 
-    app = FastAPI(title="TraceX GreenGrid", version="0.5.0", lifespan=lifespan,
+    app = FastAPI(title="Origin", version="0.5.0", lifespan=lifespan,
                   description="Software-only microgrid simulation, diagnosis and durable incident history.",
                   responses={422: {"model": ErrorEnvelope}, 409: {"model": ErrorEnvelope},
                              404: {"model": ErrorEnvelope}, 503: {"model": ErrorEnvelope}})
-    app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://127.0.0.1:5175", "http://127.0.0.1:5176"],
                        allow_methods=["GET", "POST"], allow_headers=["Content-Type"])
 
     def runtime(request: Request):
@@ -188,11 +188,11 @@ def create_app(settings: ServerSettings | None = None):
         service = runtime(request)
         async with service.lock:
             return ok({"models": service.models.availability(), "artifact_sha256": service.models.fingerprints,
-                       "datasets": {name: {"training_rows": model.metadata["training_rows"],
-                                            "training_runs": len(model.metadata["training_runs"]),
-                                            **({"calibration_rows": model.metadata["calibration_rows"],
-                                                "calibration_runs": len(model.metadata["calibration_runs"])} if name == "anomaly" else {})}
-                                    for name, model in (("anomaly", service.models.detector), ("source", service.models.localizer)) if model is not None},
+                       "training_scenarios": {
+                           "anomaly": len(service.models.detector.metadata.get("training_runs", [])) if service.models.detector else None,
+                           "anomaly_calibration": len(service.models.detector.metadata.get("calibration_runs", [])) if service.models.detector else None,
+                           "source": len(service.models.localizer.metadata.get("training_runs", [])) if service.models.localizer else None,
+                       },
                        "evaluation": dict(service.evaluation), "reports": deepcopy_reports(service.models.reports),
                        "saved_report_errors": dict(service.models.report_errors)})
 
@@ -223,7 +223,7 @@ def create_app(settings: ServerSettings | None = None):
             else:
                 data = [service.store.scenario(selected)]
                 truncated = False
-        headers = {"Content-Disposition": f'attachment; filename="tracex-{dataset}.{format}"',
+        headers = {"Content-Disposition": f'attachment; filename="origin-{dataset}.{format}"',
                    "X-Export-Truncated": str(truncated).lower()}
         if format == "json":
             return JSONResponse(content=jsonable_encoder({"data": data, "truncated": truncated}), headers=headers)

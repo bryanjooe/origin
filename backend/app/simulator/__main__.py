@@ -10,7 +10,7 @@ from .model import MicrogridSimulator
 
 
 def main():
-    parser = argparse.ArgumentParser(description="TraceX GreenGrid — Stage 1 simulator")
+    parser = argparse.ArgumentParser(description="Origin — Stage 1 microgrid simulator")
     parser.add_argument("--ticks", type=int, default=180)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--fault", choices=["normal"] + [kind.value for kind in FaultKind], default="normal")
