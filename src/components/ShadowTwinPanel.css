@@ -1,0 +1,16 @@
+.shadowtwin-panel{margin-top:20px}
+.shadowtwin-options{border:0;padding:0;margin:18px 0 0;min-width:0}
+.shadowtwin-options legend{font-weight:600;margin-bottom:12px}
+.shadowtwin-choices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.shadowtwin-choice{display:flex;align-items:flex-start;gap:9px;font-size:13px;line-height:1.5;cursor:pointer}
+.shadowtwin-choice input{width:auto;flex:none;accent-color:var(--green);margin-top:4px}
+.shadowtwin-choice small{display:block;color:var(--muted);overflow-wrap:anywhere}
+.shadowtwin-actions{display:flex;gap:16px;align-items:end;flex-wrap:wrap;margin:18px 0}
+.shadowtwin-actions .field-label{max-width:240px}
+.shadowtwin-results{margin-top:22px}
+.shadowtwin-result{padding:18px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+.shadowtwin-panel code{overflow-wrap:anywhere}
+.shadowtwin-panel details{margin:12px 0}
+.shadowtwin-panel summary{cursor:pointer;font-size:12px;color:var(--green)}
+.shadowtwin-explanation{max-height:12em;overflow:auto;line-height:1.55}
+@media(max-width:600px){.shadowtwin-choices{grid-template-columns:1fr}.shadowtwin-panel .detail-dl div{flex-direction:column;gap:5px}.shadowtwin-actions{align-items:stretch;flex-direction:column}.shadowtwin-actions .field-label{max-width:none}}

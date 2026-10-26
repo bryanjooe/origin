@@ -90,6 +90,44 @@ class SimulationRuntime:
                 "models": self.models.availability(), "runtime_error": self.error,
                 "worker_active": self.task is not None and not self.task.done()}
 
+    async def shadow_snapshot(self, branch="operated", *, at_tick=None):
+        """Internal checkpoint only; never copy the runtime/store or emit events."""
+        async with self.lock:
+            return self._shadow_snapshot_locked(branch, at_tick=at_tick)
+
+    def _shadow_snapshot_locked(self, branch="operated", *, at_tick=None):
+        """Caller must hold the existing runtime lock."""
+        from app.shadowtwin import SimulationSnapshot
+        from app.shadowtwin.foundation import MAX_TICKS
+        branches = {"operated": self.sim, "baseline": self.baseline, "faulty_uncorrected": self.uncorrected}
+        if branch not in branches:
+            raise ValueError("Choose operated, baseline, or faulty_uncorrected")
+        return SimulationSnapshot(branches[branch], ledger=self.ledgers[branch],
+                                  max_tick=min(self.settings.max_ticks, MAX_TICKS), at_tick=at_tick)
+
+    async def shadow_context(self, incident_id=None, expected_run_id=None):
+        """Capture identity, observable incident context and state atomically."""
+        async with self.lock:
+            if expected_run_id is not None and expected_run_id != self.run_id:
+                raise RuntimeConflict("Simulation run changed; refresh before starting ShadowTwin")
+            if self.error:
+                raise RuntimeConflict("Reset after the simulation runtime error before running ShadowTwin")
+            report = self.store.incident(incident_id) if incident_id else None
+            if incident_id and report is None:
+                raise KeyError("Incident not found")
+            historical = bool(report and report["run_id"] != self.run_id)
+            evidence = ({key: deepcopy(report.get(key)) for key in ("evidence", "diagnosis", "security_attribution")}
+                        if report and not historical else {})
+            if report and not historical:
+                evidence["evidence"] = evidence.get("evidence") or []
+            # Bound context as well as experimental work; records remain genuine.
+            if evidence.get("evidence"):
+                evidence["evidence"] = evidence["evidence"][-256:]
+            snapshot = self._shadow_snapshot_locked()
+            return snapshot, {"run_id": self.run_id, "snapshot_tick": snapshot.next_tick,
+                "incident_id": incident_id, "incident_run_id": report["run_id"] if report else None,
+                "historical_incident": historical}, evidence
+
     def _reports(self, current):
         reports = self.tracker.reports(changed_since=self._versions)
         for report in reports:
@@ -314,12 +352,14 @@ class SimulationRuntime:
             fault = fault_request.fault(self.sim.tick)
             if fault.start_tick + fault.duration_ticks > self.settings.max_ticks:
                 raise ValueError("Fault must finish within the configured run tick limit")
+            if fault.start_tick < self.sim.tick:
+                raise ValueError(f"Fault start tick {fault.start_tick} is in the past; the next simulation tick is {self.sim.tick}")
             # Validate both engines before mutating either schedule.
-            for engine in (self.sim.faults, self.uncorrected.faults):
-                if fault.start_tick < self.sim.tick or any(
-                    max(item["start_tick"], fault.start_tick) < min(item["start_tick"] + item["duration_ticks"], fault.start_tick + fault.duration_ticks)
-                    for item in engine.ground_truth() if item["cancelled_at_tick"] is None):
-                    raise ValueError("Fault is in the past or overlaps a planned fault in a comparison run")
+            for name, engine in (("operated", self.sim.faults), ("uncorrected comparison", self.uncorrected.faults)):
+                for item in engine.ground_truth():
+                    end = item["start_tick"] + item["duration_ticks"]
+                    if item["cancelled_at_tick"] is None and max(item["start_tick"], fault.start_tick) < min(end, fault.start_tick + fault.duration_ticks):
+                        raise ValueError(f"Fault overlaps a scheduled fault in the {name} run (ticks {item['start_tick']} to {end - 1}); that fault ends at tick {end}")
             self.sim.faults.schedule(fault, self.sim.tick)
             self.uncorrected.faults.schedule(fault, self.sim.tick)
             self.store.event(self.run_id, self.sim.tick, "fault_scheduled", category="simulation_action")

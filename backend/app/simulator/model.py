@@ -75,17 +75,25 @@ class MicrogridSimulator:
         """Restore simulated components and flush corrupted/stale queued messages."""
         self.faults.cancel_all(self.tick)
         self.attacks.cancel_all(self.tick)
-        self._pending.clear()
-        self._latest = None
+        self.flush_communication()
         self._stuck = None
         self.events.append({"tick": self.tick, "event": "simulated_correction"})
+
+    def flush_communication(self):
+        """Clear buffered transport state only; scheduled disturbances remain."""
+        self._pending.clear()
+        self._latest = None
 
     def run(self, ticks: int) -> list[dict]:
         if type(ticks) is not int or ticks < 0:
             raise ValueError("ticks must be a nonnegative integer")
         return [self.step() for _ in range(ticks)]
 
-    def step(self) -> dict:
+    def step(self, *, use_redundant_solar=False, restore_controller_policy=False) -> dict:
+        # Explicit branch-local experimental input choices. Existing callers use
+        # both defaults; no schedule is read to choose or activate these options.
+        if type(use_redundant_solar) is not bool or type(restore_controller_policy) is not bool:
+            raise ValueError("Experimental input choices must be boolean")
         c, tick = self.config, self.tick
         dt = c.tick_seconds / 3600
         elapsed = tick * c.tick_seconds
@@ -144,6 +152,10 @@ class MicrogridSimulator:
                 fraction = {StealthLevel.NAIVE: 0.75, StealthLevel.MODERATE: 0.18,
                             StealthLevel.STEALTHY: 0.06}[stealth]
                 measured_demand = demand * (1 + fraction * amount)
+        if use_redundant_solar:
+            # Route an already simulated independent reading into the actual
+            # controller packet, before transport and energy calculations.
+            measured = redundant_solar
         # Authentication telemetry is intentionally imperfect in both
         # directions: ordinary links occasionally report a bad tag, and
         # compromised links can still produce a valid tag.
@@ -271,6 +283,10 @@ class MicrogridSimulator:
             elif attack_type is AttackType.MESSAGE_TAMPERING and attack_target == "controller":
                 command = clamp(command + c.discharge_limit_kw * attack.severity * self._stealth_scale(attack),
                                 -c.charge_limit_kw, c.discharge_limit_kw)
+            if restore_controller_policy:
+                # Select the existing nominal policy, using the same received
+                # inputs/configuration. Upstream errors are deliberately retained.
+                command = nominal_command
             requested = min(inputs["demand_kw"], c.inverter_limit_kw,
                             max(0, inputs["solar_kw"] + command) * c.inverter_efficiency)
             if attack_type is AttackType.MESSAGE_TAMPERING and attack_target == "inverter":

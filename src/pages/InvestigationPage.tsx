@@ -1,14 +1,17 @@
 import { useEffect, useState } from 'react'
+import { useOutletContext } from 'react-router-dom'
+import { ShadowTwinPanel } from '../components/ShadowTwinPanel'
 import { Activity, ArrowRight, Check, CircleHelp, Crosshair, ShieldAlert, Wrench } from 'lucide-react'
 import { DependencyGraph } from '../components/system/DependencyGraph'
 import { Badge, Button, Card, EmptyState } from '../components/ui'
 import { getSeverity, simulationLabel } from '../utils/status'
 import { useApiResource } from '../hooks/useApiResource'
 import { api } from '../services/api'
-import type { EventRecord, IncidentDetail, IncidentSummary, SecurityAttribution, TopologyNode } from '../types/domain'
+import type { EventRecord, IncidentDetail, IncidentSummary, SecurityAttribution, SystemState, TopologyNode } from '../types/domain'
 import { formatNumber, percent } from '../utils/data'
 
 export function InvestigationPage() {
+  const system = useOutletContext<SystemState | null>()
   const incidents = useApiResource('investigation-incidents', api.getIncidents, 8_000)
   const [incidentId, setIncidentId] = useState<string | number | null>(null)
   const [selectedNode, setSelectedNode] = useState<TopologyNode | null>(null)
@@ -32,6 +35,7 @@ export function InvestigationPage() {
       {incidents.loading && !incidents.data ? <EmptyState title="Loading incidents" kind="loading" /> : !incidents.error && !incidents.data?.length ? <EmptyState title="No incidents to investigate" detail="The incident endpoint returned no records." kind="unknown" /> : null}
       {selectedIncident && <InvestigationDetail key={String(selectedIncident.id)} incident={selectedIncident} selectedNode={selectedNode} onSelectNode={setSelectedNode} correcting={correcting} setCorrecting={setCorrecting} correctionMessage={correctionMessage} setCorrectionMessage={setCorrectionMessage} actionError={actionError} setActionError={setActionError} onChanged={incidents.reload} />}
       {incidents.data && incidents.data.length > 1 && <div className="incident-switcher"><span>INCIDENT</span>{incidents.data.map((incident) => <button key={incident.id} className={String(incident.id) === String(incidentId) ? 'selected' : ''} onClick={() => { setIncidentId(incident.id); setSelectedNode(null); setCorrectionMessage(null) }}>{incident.title ?? `${incident.source ?? 'Incident'} · ${incident.id}`}</button>)}</div>}
+      <ShadowTwinPanel incidentId={selectedIncident?.id} system={system} />
     </>
   )
 }

@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 import csv
 import io
 import json
+import uuid
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -18,7 +19,7 @@ from app.api.runtime import RuntimeConflict, SimulationRuntime
 from app.propagation import build_topology
 from app.propagation.investigation import evidence_graph
 from app.schemas.api import (AttackRequest, Envelope, ErrorEnvelope, EvaluateRequest, FaultRequest, ResetRequest,
-                             ScenarioRequest, SpeedRequest, StartRequest, StepRequest)
+                             ScenarioRequest, ShadowCompareRequest, SpeedRequest, StartRequest, StepRequest)
 
 
 def create_app(settings: ServerSettings | None = None):
@@ -26,6 +27,7 @@ def create_app(settings: ServerSettings | None = None):
     async def lifespan(application):
         runtime = await asyncio.to_thread(SimulationRuntime, settings or ServerSettings.from_environment())
         application.state.runtime = runtime
+        application.state.shadowtwin_lock = asyncio.Lock()
         try:
             yield
         finally:
@@ -85,6 +87,45 @@ def create_app(settings: ServerSettings | None = None):
         graph = build_topology()
         return ok({"nodes": [{"id": node, **data} for node, data in graph.nodes(data=True)],
                    "edges": [{"source": a, "target": b, **data} for a, b, data in graph.edges(data=True)]})
+
+    @app.post("/api/shadowtwin/compare", response_model=Envelope)
+    async def shadow_compare(request: Request, body: ShadowCompareRequest):
+        from app.shadowtwin import Hypothesis, compare_hypotheses
+        service = runtime(request)
+        gate = request.app.state.shadowtwin_lock
+        if gate.locked():
+            raise RuntimeConflict("A ShadowTwin analysis is already running; wait before submitting another")
+        async with gate:
+            try:
+                snapshot, context, evidence = await service.shadow_context(body.incident_id, body.expected_run_id)
+            except KeyError:
+                raise HTTPException(404, "Incident not found")
+            ident = "shadow-" + uuid.uuid4().hex
+            hypotheses = [Hypothesis(h.hypothesis_id, h.component, h.mechanism, h.intervention,
+                                    body.duration_ticks, checkpoint_id=f"{context['run_id']}:{snapshot.next_tick}")
+                          for h in body.hypotheses]
+            # The bounded worker owns only detached snapshots, never the runtime.
+            work = asyncio.create_task(asyncio.to_thread(compare_hypotheses, snapshot, hypotheses,
+                body.duration_ticks, evidence, comparison_id=ident))
+            try:
+                result = await asyncio.shield(work)
+            except asyncio.CancelledError:
+                # Retain the concurrency guard until an abandoned worker finishes.
+                await work
+                raise
+            async with service.lock:
+                context.update(current_run_id=service.run_id, run_changed=service.run_id != context["run_id"])
+            # Avoid transmitting duplicate frames, ledger internals or unused rows.
+            fields = ("tick", "elapsed_seconds", "actual_solar_kw", "measured_solar_kw", "redundant_solar_kw",
+                      "battery_soc_pct", "delivered_kw", "inverter_requested_kw", "inverter_actual_kw")
+            for item in result["hypotheses"]:
+                experiment = item.get("experiment")
+                if experiment:
+                    item["experiment"] = {key: experiment.get(key) for key in
+                        ("status", "start_tick", "end_tick", "execution_tick", "intervention_status", "sustained", "warnings", "limitations")}
+                    for name in ("control_telemetry", "experimental_telemetry"):
+                        item["experiment"][name] = [{key: row.get(key) for key in fields} for row in experiment.get(name, [])]
+            return ok({**result, **context})
 
     @app.post("/api/simulation/start", response_model=Envelope)
     @app.post("/api/simulation/resume", response_model=Envelope)

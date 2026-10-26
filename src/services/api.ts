@@ -6,6 +6,7 @@ import type {
 } from '../types/domain'
 
 import type { AttackPayload, AttackScheduleResponse } from '../types/attacks'
+import type { ShadowComparison, ShadowRequest } from '../types/shadowtwin'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
 type JsonRecord = Record<string, unknown>
@@ -170,6 +171,7 @@ function mapModelMetrics(rawValue: unknown): ModelMetrics {
 }
 
 export const api = {
+  compareShadowTwin: (payload: ShadowRequest): Promise<ShadowComparison> => post('/api/shadowtwin/compare', payload),
   getHealth: async (): Promise<HealthResponse> => {
     const raw = record(await data<unknown>('/api/health'))
     const models = record(raw.models), available = Object.values(models).some((model) => record(model).available === true)
@@ -213,8 +215,15 @@ export const api = {
   injectFault: async (payload: FaultPayload): Promise<SimulationActionResponse> => {
     const mode = faultModes[payload.scenario]
     if (!mode) throw new ApiError('Choose a fault scenario before injecting a fault.', 422)
-    const start = Math.max(0, Math.floor(payload.start_tick))
-    const raw = record(await post('/api/simulation/inject-fault', { ...mode, severity: payload.severity, start_tick: start, duration_ticks: Math.max(1, Math.min(120, 10000 - start)) }))
+    // Refresh only on submission: the form's polled clock can lag a running simulation.
+    const nextTick = number(record(await data<unknown>('/api/system/state')).next_tick)
+    if (nextTick === undefined || !Number.isInteger(nextTick)) throw new ApiError('Current simulation tick is unavailable. Refresh the simulation state and try again.', 409)
+    const requested = Math.max(0, Math.floor(payload.start_tick))
+    const start = Math.max(requested, nextTick)
+    if (start >= 10000) throw new ApiError('Fault must finish within the configured run tick limit (10000).', 422)
+    // Omitting start_tick lets the backend resolve "next tick" under its runtime lock.
+    const raw = record(await post('/api/simulation/inject-fault', { ...mode, severity: payload.severity,
+      ...(requested > nextTick ? { start_tick: requested } : {}), duration_ticks: Math.min(120, 10000 - start) }))
     return { ...raw, message: 'Fault scheduled as simulated ground truth; it is not a model prediction.' }
   },
   injectAttack: (payload: AttackPayload): Promise<AttackScheduleResponse> => post('/api/simulation/inject-attack', payload),

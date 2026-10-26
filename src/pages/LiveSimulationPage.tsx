@@ -55,6 +55,7 @@ export function LiveSimulationPage() {
   }
 
   const simulationScenario = scenario === 'actuator' ? 'inverter' : scenario
+  const faultStartTick = Math.max(startTick, system.data?.next_tick ?? 0)
   const normalized = normalizeTelemetry(points)
 
   return (
@@ -88,20 +89,20 @@ export function LiveSimulationPage() {
               <input aria-label="Fault severity" type="range" min="0.05" max="1" step="0.05" value={severity} disabled={scenario === 'normal' || pending !== null || !system.data} onChange={(event) => setSeverity(Number(event.target.value))} />
             </label>
             <label className="field-label">START TICK
-              <input type="number" min={system.data?.next_tick ?? 0} step="1" value={startTick} disabled={scenario === 'normal' || pending !== null || !system.data} onChange={(event) => setStartTick(Math.max(system.data?.next_tick ?? 0, Number(event.target.value)))} />
+              <input type="number" min={system.data?.next_tick ?? 0} step="1" value={faultStartTick} disabled={scenario === 'normal' || pending !== null || !system.data} onChange={(event) => setStartTick(Math.max(system.data?.next_tick ?? 0, Number(event.target.value)))} />
             </label>
             <label className="field-label">RANDOM SEED
               <input type="number" min="0" step="1" value={seed} disabled={pending !== null || !system.data || isRunning} onChange={(event) => setSeed(Math.max(0, Number(event.target.value)))} />
             </label>
           </div>
           <div className="control-actions">
-            <Button variant="primary" icon={<Play size={14} />} loading={pending === 'start'} disabled={!canStart || pending !== null || !!system.error || !system.data} onClick={() => void perform('start', () => api.startSimulation({ scenario: simulationScenario, seed, speed, severity, start_tick: startTick }))}>Start</Button>
+            <Button variant="primary" icon={<Play size={14} />} loading={pending === 'start'} disabled={!canStart || pending !== null || !!system.error || !system.data} onClick={() => void perform('start', () => api.startSimulation({ scenario: simulationScenario, seed, speed, severity, start_tick: faultStartTick }))}>Start</Button>
             <Button icon={<Pause size={14} />} loading={pending === 'pause'} disabled={!isRunning || pending !== null || !system.data} onClick={() => void perform('pause', api.pauseSimulation)}>Pause</Button>
             <Button icon={<Play size={14} />} loading={pending === 'resume'} disabled={!isPaused || pending !== null || !system.data} onClick={() => void perform('resume', api.resumeSimulation)}>Resume</Button>
             <Button variant="quiet" icon={<RotateCcw size={14} />} loading={pending === 'reset'} disabled={pending !== null || !system.data || isRunning} onClick={() => void perform('reset', () => api.resetSimulation(seed))}>Reset</Button>
-            <Button variant="secondary" icon={<SlidersHorizontal size={14} />} loading={pending === 'inject'} disabled={scenario === 'normal' || pending !== null || !isRunning} onClick={() => void perform('inject', () => api.injectFault({ scenario: simulationScenario, severity, start_tick: startTick, seed }))}>Inject fault</Button>
+            <Button variant="secondary" icon={<SlidersHorizontal size={14} />} loading={pending === 'inject'} disabled={scenario === 'normal' || pending !== null || !system.data || !!system.error || (!isRunning && !isPaused)} onClick={() => void perform('inject', () => api.injectFault({ scenario: simulationScenario, severity, start_tick: faultStartTick, seed }))}>Inject fault</Button>
           </div>
-          <p className="control-footnote"><ShieldAlert size={13} />All actions are simulation-only. A selected fault scenario is simulated ground truth, separate from model predictions.</p>
+          <p className="control-footnote"><ShieldAlert size={13} />All actions are simulation-only. Start already schedules the selected fault scenario. Inject fault adds another fault; its interval must not overlap a scheduled fault, including in the uncorrected comparison. A selected fault scenario is simulated ground truth, separate from model predictions.</p>
         </Card>
 
         <Card title="Simulation clock" eyebrow="TIME / STATE" className="clock-card">

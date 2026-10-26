@@ -100,6 +100,40 @@ class EvaluateRequest(RequestModel):
     profile: Literal["quick", "full"] = "full"
 
 
+class ShadowHypothesisRequest(RequestModel):
+    hypothesis_id: str = Field(min_length=1, max_length=64)
+    component: Literal["solar_sensor", "controller", "communication"]
+    mechanism: str = Field(min_length=1, max_length=160)
+    intervention: Literal["use_redundant_solar", "restore_controller_policy", "flush_communication"]
+
+    @model_validator(mode="after")
+    def supported_pair(self):
+        from app.shadowtwin.experiments import SUPPORTED_INTERVENTIONS
+        if not self.hypothesis_id.strip() or not self.mechanism.strip():
+            raise ValueError("Hypothesis ID and mechanism must not be blank")
+        if SUPPORTED_INTERVENTIONS[self.intervention] != self.component:
+            raise ValueError("The intervention does not support the selected component")
+        return self
+
+
+class ShadowCompareRequest(RequestModel):
+    hypotheses: list[ShadowHypothesisRequest] = Field(min_length=2, max_length=6)
+    duration_ticks: int = Field(20, ge=1, le=1000, strict=True)
+    incident_id: str | None = Field(None, min_length=1, max_length=128)
+    expected_run_id: str | None = Field(None, min_length=1, max_length=128)
+
+    @model_validator(mode="after")
+    def bounded_batch(self):
+        from app.shadowtwin.comparison import MAX_BRANCH_TICKS
+        if len(self.hypotheses) * self.duration_ticks * 2 > MAX_BRANCH_TICKS:
+            raise ValueError("ShadowTwin comparison exceeds the 480 branch-tick budget")
+        if len({h.hypothesis_id for h in self.hypotheses}) != len(self.hypotheses):
+            raise ValueError("Hypothesis identifiers must be unique")
+        if len({(h.component, h.intervention, h.mechanism) for h in self.hypotheses}) != len(self.hypotheses):
+            raise ValueError("Duplicate hypotheses require meaningfully different mechanisms")
+        return self
+
+
 class Envelope(BaseModel):
     data: Any
 

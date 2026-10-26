@@ -81,7 +81,7 @@ export function AppShell() {
           </div>
         </header>
         {health.error && <div className="global-warning" role="status">Backend health is unavailable. Data panels will show the API error state.</div>}
-        <div className="page-content"><Outlet /></div>
+        <div className="page-content"><Outlet context={system.data} /></div>
         <footer className="footer-note"><span><b>ORIGIN / GREEN GRID</b> &nbsp;SIMULATED MICROGRID</span><span>SYNTHETIC SIGNALS · NOT FIELD MEASUREMENTS</span></footer>
       </main>
     </div>

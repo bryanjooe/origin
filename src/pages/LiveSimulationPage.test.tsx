@@ -204,4 +204,38 @@ describe('Live Simulation cyberattack controls', () => {
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1))
     expect(resource.reload).toHaveBeenCalledTimes(1)
   })
+
+  it('allows fault injection while paused and uses the advanced displayed tick', async () => {
+    resource.data.next_tick = 180
+    const spy = vi.spyOn(api, 'injectFault').mockResolvedValue({})
+    render(<LiveSimulationPage />)
+    change('SCENARIO', 'sensor')
+    expect((screen.getByLabelText('START TICK') as HTMLInputElement).value).toBe('180')
+    const button = screen.getByRole('button', { name: /^Inject fault$/ }) as HTMLButtonElement
+    expect(button.disabled).toBe(false)
+    fireEvent.click(button)
+    await waitFor(() => expect(spy).toHaveBeenCalledWith({ scenario: 'sensor', severity: 0.7, start_tick: 180, seed: 42 }))
+  })
+
+  it('keeps a future start while advancing and follows the clock once it passes', () => {
+    const view = render(<LiveSimulationPage />)
+    change('SCENARIO', 'sensor')
+    change('START TICK', '250')
+    resource.data = { ...resource.data, next_tick: 200 }
+    view.rerender(<LiveSimulationPage />)
+    expect((screen.getByLabelText('START TICK') as HTMLInputElement).value).toBe('250')
+    resource.data = { ...resource.data, next_tick: 300 }
+    view.rerender(<LiveSimulationPage />)
+    expect((screen.getByLabelText('START TICK') as HTMLInputElement).value).toBe('300')
+  })
+
+  it('shows genuine fault overlap feedback and unlocks the existing control', async () => {
+    vi.spyOn(api, 'injectFault').mockRejectedValue(new Error('Fault overlaps a scheduled fault in the uncorrected comparison run'))
+    render(<LiveSimulationPage />)
+    change('SCENARIO', 'sensor')
+    fireEvent.click(screen.getByRole('button', { name: /^Inject fault$/ }))
+    expect((await screen.findByRole('alert')).textContent).toContain('uncorrected comparison run')
+    await waitFor(() => expect((screen.getByRole('button', { name: /^Inject fault$/ }) as HTMLButtonElement).disabled).toBe(false))
+    expect(screen.getByText(/Start already schedules the selected fault scenario/)).toBeTruthy()
+  })
 })
