@@ -1,10 +1,11 @@
 # TraceX GreenGrid
 
-Software-only renewable microgrid fault-localization project. **Stages 1 and 2 are
+Software-only renewable microgrid fault-localization project. **Stages 1–3 are
 implemented:** physical simulation, deterministic fault injection, timestamped
 communication, controller logs, dependency topology, and a normal-baseline
-Isolation Forest anomaly detector with separately labeled residual checks.
-There is no source classifier, web server, dashboard, or incident database yet.
+Isolation Forest anomaly detector with separately labeled residual checks, and a
+Random Forest source classifier with confidence-based abstention.
+There is no web server, dashboard, or incident database yet.
 
 ## Setup
 
@@ -55,6 +56,34 @@ results; some faults are missed. Scores are not probabilities or source confiden
 See [detector methodology](docs/detection.md) and the
 [measured validation report](docs/stage2-validation.md).
 
+## Stage 3: train and run source localization
+
+```powershell
+$env:PYTHONPATH = 'backend'
+.\.venv\Scripts\python.exe -m app.localization
+.\.venv\Scripts\python.exe -m app.simulator --fault inverter --mode derate --severity 0.8 --start 30 --duration 120 --correct-at 110 --anomaly-model outputs/stage2/anomaly.joblib --source-model outputs/stage3/source_classifier.joblib --output outputs/localized-inverter
+```
+
+Training generates a persisted `source_classifier.joblib`, feature CSV, training
+manifest, validation results and held-out test report in `outputs/stage3`. This
+directory is ignored by Git; run the command after cloning. Source scoring can
+also run without `--anomaly-model`. It adds `source_predictions.json` with ranked
+candidates, uncalibrated classifier confidence, actual residual observations,
+input features, and explicit Unknown results for low confidence, ambiguity or
+missing initialization. Telemetry and scenario truth remain separate files.
+
+Six learned classes are Normal, Sensor, Communication, Controller,
+Firmware/Configuration, and Actuator/Inverter. Unknown is an abstention, not a
+seventh trained source. Hypotheses are not proven root causes. Default confidence
+and top-two margin limits are 0.65 and 0.15, fixed before validation/test scoring.
+
+On 104 held-out runs, overall accuracy is **81.57% including Unknown as incorrect**,
+coverage **89.08%**, and accuracy among accepted predictions **91.56%**. Unknown
+rate is **10.92%**; normal recall is **70.35%**, mainly due to abstentions. These are
+synthetic per-tick classification results, not end-to-end incident performance.
+See [localization methodology](docs/localization.md) and
+[Stage 3 validation](docs/stage3-validation.md).
+
 ## Structure
 
 ```text
@@ -64,6 +93,7 @@ backend/
     fault_injection/    # Fault families, validated schedules, scenario truth
     propagation/        # NetworkX dependency graph and downstream traversal
     detection/          # Causal features, normal-only ML, calibration, evaluation
+    localization/       # Supervised source classifier, confidence/Unknown, evaluation
   tests/                # Deterministic physics, faults, graph, export checks
   requirements.txt
 docs/simulation.md      # Equations, units, and limitations

@@ -1,4 +1,4 @@
-"""Offline Stage 1 demo and reproducible telemetry export."""
+"""Offline simulator demo with optional anomaly and source model scoring."""
 import argparse
 import csv
 import json
@@ -21,6 +21,7 @@ def main():
     parser.add_argument("--correct-at", type=int)
     parser.add_argument("--output", type=Path, default=Path("outputs/demo"))
     parser.add_argument("--anomaly-model", type=Path, help="Optional trusted Stage 2 Joblib artifact")
+    parser.add_argument("--source-model", type=Path, help="Optional trusted Stage 3 Joblib artifact")
     args = parser.parse_args()
     if args.ticks < 1:
         parser.error("--ticks must be positive")
@@ -28,6 +29,7 @@ def main():
         parser.error("--correct-at must be within the run")
     sim = MicrogridSimulator(seed=args.seed)
     detector = extractor = None
+    localizer = source_extractor = None
     if args.anomaly_model:
         from app.detection import AnomalyDetector, FeatureExtractor
         try:
@@ -35,6 +37,13 @@ def main():
         except (FileNotFoundError, ValueError) as error:
             parser.error(f"Anomaly model unavailable: {error}")
         extractor = FeatureExtractor(sim.config)
+    if args.source_model:
+        from app.localization import LocalizationFeatureExtractor, SourceLocalizer
+        try:
+            localizer = SourceLocalizer.load(args.source_model)
+        except (FileNotFoundError, ValueError) as error:
+            parser.error(f"Source model unavailable: {error}")
+        source_extractor = LocalizationFeatureExtractor(sim.config)
     if args.fault != "normal":
         kind = FaultKind(args.fault)
         mode = args.mode or {"sensor": "bias", "communication": "delay",
@@ -47,12 +56,15 @@ def main():
         except ValueError as error:
             parser.error(str(error))
     observations = []
+    source_observations = []
     for tick in range(args.ticks):
         if tick == args.correct_at:
             sim.correct()
         row = sim.step()
         if extractor is not None:
             observations.append(extractor.update(row))
+        if source_extractor is not None:
+            source_observations.append(source_extractor.update(row))
     args.output.mkdir(parents=True, exist_ok=True)
     with (args.output / "telemetry.csv").open("w", newline="", encoding="utf-8") as stream:
         writer = csv.DictWriter(stream, fieldnames=list(sim.history[0]))
@@ -74,6 +86,9 @@ def main():
         (args.output / "anomaly_events.json").write_text(json.dumps([
             row for row in detection if row["combined_status"] != "normal"
         ], indent=2), encoding="utf-8")
+    if localizer is not None:
+        (args.output / "source_predictions.json").write_text(
+            json.dumps(localizer.predict(source_observations), indent=2), encoding="utf-8")
     dt = sim.config.tick_seconds / 3600
     print(json.dumps({"ticks": args.ticks, "seed": args.seed,
                       "solar_generated_kwh": sum(r["actual_solar_kw"] for r in sim.history) * dt,

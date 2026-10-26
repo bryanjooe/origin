@@ -141,5 +141,7 @@ with fault severity. The held-out results were measured once with the specified
 settings; thresholds were not optimized on that test set. Future tuning needs a
 development partition and a fresh final test set.
 
-Source classification, unknown-source handling, incident explanations, API/live UI,
-SQLite persistence, and sustainability counterfactuals remain for later stages.
+Stage 3 now adds [source classification and unknown-source handling](localization.md).
+Incident explanations, API/live UI, SQLite persistence, and sustainability
+counterfactuals remain for later stages. Stage 2 anomaly performance above is
+unchanged by Stage 3's additional features and classifier.
