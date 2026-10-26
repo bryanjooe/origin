@@ -56,11 +56,13 @@ class ModelRegistry:
             self.security_analyzer = AttributionModels.load(security_path)
             self.fingerprints["security_attribution"] = hashlib.sha256(security_path.read_bytes()).hexdigest()
             evaluation_path = self.security_results_dir / "held_out_evaluation.json"
-            if evaluation_path.exists():
-                policy_data = json.loads(evaluation_path.read_text(encoding="utf-8")).get("alert_policy", {})
-                from app.security_analysis.dataset import AlertPolicy
-                self.security_policy = AlertPolicy(**policy_data)
+            policy_data = json.loads(evaluation_path.read_text(encoding="utf-8"))["alert_policy"]
+            from app.security_analysis.dataset import AlertPolicy
+            self.security_policy = AlertPolicy(**policy_data)
         except Exception as error:
+            self.security_analyzer = None
+            self.security_policy = None
+            self.fingerprints.pop("security_attribution", None)
             self.security_error = f"{type(error).__name__}: {error}"
 
     def availability(self):

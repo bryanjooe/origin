@@ -23,6 +23,7 @@ export interface MetricValues {
 }
 
 export interface SystemState {
+  run_id?: string
   status?: string
   simulation_status?: string
   simulation_time?: string | number
@@ -45,6 +46,15 @@ export interface TopologyNode {
   status?: string
   telemetry?: Record<string, unknown>
   events?: EventRecord[]
+  candidate_source?: boolean
+  security_candidate?: boolean
+  observed_symptom?: boolean
+  security_observed?: boolean
+  potentially_affected?: boolean
+  security_potentially_affected?: boolean
+  direct_evidence?: EvidenceItem[]
+  security_observations?: AttributionObservation[]
+  downstream_dependencies?: string[]
   [key: string]: unknown
 }
 
@@ -55,6 +65,7 @@ export interface TopologyEdge {
   kind?: string
   type?: string
   suspected?: boolean
+  security_suspected?: boolean
   label?: string
   [key: string]: unknown
 }
@@ -98,6 +109,11 @@ export interface EventRecord {
   message?: string
   description?: string
   details?: Record<string, unknown>
+  tick?: number
+  elapsed_seconds?: number
+  nodes?: string[]
+  evidence_id?: string
+  signal?: string
 }
 
 export interface PredictionCandidate {
@@ -114,6 +130,11 @@ export interface EvidenceItem {
   description?: string
   value?: unknown
   timestamp?: string
+  tick?: number
+  signal?: string
+  nodes?: string[]
+  threshold?: number
+  unit?: string
 }
 
 export interface IncidentSummary {
@@ -131,6 +152,7 @@ export interface IncidentSummary {
 }
 
 export interface IncidentDetail extends IncidentSummary {
+  graph?: IncidentGraph
   summary?: string
   candidates?: PredictionCandidate[]
   evidence?: EvidenceItem[]
@@ -152,6 +174,15 @@ export interface AttributionObservation {
 
 export interface SecurityAttribution {
   available: boolean
+  model_available?: boolean
+  status?: 'pending' | 'available' | 'unavailable' | 'insufficient_evidence'
+  confidence_kind?: string
+  window_complete?: boolean
+  required_window_ticks?: number
+  window_start_tick?: number
+  window_end_tick?: number | null
+  detector_fire_tick?: number
+  uncertainty?: string
   nature_verdict: string
   nature_confidence?: number | null
   nature_candidates?: Array<{ nature: string; confidence: number }>
@@ -222,6 +253,15 @@ export interface IncidentGraph {
   nodes: TopologyNode[]
   edges: TopologyEdge[]
   affected_downstream?: string[]
+  suspected_paths?: { nodes: string[]; evidence_ids: string[]; interpretation: string }[]
+  security_paths?: { nodes: string[]; evidence_ids: string[]; interpretation: string }[]
+  security_candidate_nodes?: string[]
+  observed_nodes?: string[]
+  potentially_affected_nodes?: string[]
+  limitations?: string[]
+  evidence_limitations?: string[]
+  security_origin_message?: string
+  security_status?: string
 }
 
 export interface ComponentStatus {

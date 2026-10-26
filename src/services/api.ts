@@ -5,6 +5,8 @@ import type {
   SecurityAttribution, SecurityMetrics,
 } from '../types/domain'
 
+import type { AttackPayload, AttackScheduleResponse } from '../types/attacks'
+
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
 type JsonRecord = Record<string, unknown>
 
@@ -21,8 +23,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new ApiError(error instanceof Error ? error.message : 'Could not reach the API.', 0)
   }
   if (!response.ok) {
-    const payload = await response.json().catch(() => null) as { error?: { message?: string }; detail?: string } | null
-    throw new ApiError(payload?.error?.message ?? payload?.detail ?? `Request failed (${response.status}).`, response.status)
+    const payload = await response.json().catch(() => null) as { error?: { message?: string; details?: { location?: (string | number)[]; message?: string }[] }; detail?: string } | null
+    const details = payload?.error?.details?.map((item) => `${item.location?.join('.') ?? 'Request'}: ${item.message ?? 'Invalid value'}`).join('; ')
+    throw new ApiError([payload?.error?.message ?? payload?.detail ?? `Request failed (${response.status}).`, details].filter(Boolean).join(' '), response.status)
   }
   return response.json() as Promise<T>
 }
@@ -106,10 +109,13 @@ function mapIncidentDetail(item: unknown): IncidentDetail {
   }) : []
   const timeline = Array.isArray(raw.timeline) ? raw.timeline.map((item) => {
     const event = record(item)
-    return { ...event, event: text(event.event), simulation_time: number(event.elapsed_seconds), timestamp: number(event.tick) === undefined ? undefined : `Tick ${event.tick}` }
-  }) : []
+    return { ...event, tick: number(event.tick), event: text(event.event), simulation_time: number(event.elapsed_seconds),
+      nodes: Array.isArray(event.nodes) ? event.nodes.filter((node): node is string => typeof node === 'string') : [],
+      evidence_id: text(event.evidence_id), signal: text(event.signal), timestamp: number(event.tick) === undefined ? undefined : `Tick ${event.tick}` }
+  }).sort((a, b) => (a.tick ?? a.simulation_time ?? 0) - (b.tick ?? b.simulation_time ?? 0)) : []
   const graph = record(raw.graph)
   return { ...base, summary: text(record(explanation).likely_source), candidates,
+    graph: Array.isArray(graph.nodes) ? normalizeGraph(graph as unknown as IncidentGraph) : undefined,
     evidence: describedEvidence.length ? describedEvidence : evidence, residual_checks: residualChecks,
     timeline, diagnostic_checks: Array.isArray(explanation.diagnostic_checks) ? explanation.diagnostic_checks.filter((item): item is string => typeof item === 'string') : [],
     affected_components: Array.isArray(graph.potentially_affected_nodes) ? graph.potentially_affected_nodes.filter((value): value is string => typeof value === 'string') : [],
@@ -179,6 +185,7 @@ export const api = {
     const anomaly = record(raw.anomaly), source = record(raw.source)
     const incidentListing = record(incidentValue)
     return {
+      run_id: text(raw.run_id),
       status: raw.running === true ? 'running' : 'paused', simulation_status: raw.running === true ? 'running' : 'paused',
       simulation_time_seconds: number(raw.simulated_seconds), sim_time_seconds: number(raw.simulated_seconds), next_tick: number(raw.next_tick),
       anomaly_status: text(anomaly.combined_status) ?? 'unknown', anomaly: { status: text(anomaly.combined_status), score: number(anomaly.anomaly_score), source: text(source.predicted_source) },
@@ -210,6 +217,7 @@ export const api = {
     const raw = record(await post('/api/simulation/inject-fault', { ...mode, severity: payload.severity, start_tick: start, duration_ticks: Math.max(1, Math.min(120, 10000 - start)) }))
     return { ...raw, message: 'Fault scheduled as simulated ground truth; it is not a model prediction.' }
   },
+  injectAttack: (payload: AttackPayload): Promise<AttackScheduleResponse> => post('/api/simulation/inject-attack', payload),
   setSpeed: async (speed: number): Promise<SimulationActionResponse> => record(await post('/api/simulation/speed', { speed })),
   applyCorrection: async (_incidentId: string | number): Promise<SimulationActionResponse> => { await post('/api/simulation/correct'); return { message: 'Simulated correction applied.' } },
   getTelemetry: async (afterTick = -1, limit = 360): Promise<TelemetryBatch> => {
@@ -228,10 +236,7 @@ export const api = {
   getIncident: async (id: string | number): Promise<IncidentDetail> => mapIncidentDetail(await data<unknown>(`/api/incidents/${encodeURIComponent(String(id))}`)),
   getIncidentGraph: async (id: string | number): Promise<IncidentGraph> => {
     const graph = await data<IncidentGraph>(`/api/incidents/${encodeURIComponent(String(id))}/graph`)
-    return { ...graph, nodes: graph.nodes.map((node) => {
-      const history = node.telemetry as unknown
-      return { ...node, telemetry: Array.isArray(history) ? record(history.at(-1)) : record(history) }
-    }) }
+    return normalizeGraph(graph)
   },
   getSustainability: async (): Promise<SustainabilityResponse> => {
     const raw = record(await data<unknown>('/api/metrics/sustainability'))
@@ -262,6 +267,14 @@ export const api = {
     if (!response.ok) throw new ApiError(`Export failed (${response.status}).`, response.status)
     return response.blob()
   },
+}
+
+function normalizeGraph(graph: IncidentGraph): IncidentGraph {
+  return { ...graph, affected_downstream: graph.affected_downstream ?? [...new Set([...(graph.potentially_affected_nodes ?? []), ...graph.nodes.filter((node) => node.security_potentially_affected).map((node) => node.id)])],
+    nodes: graph.nodes.map((node) => {
+      const history = node.telemetry as unknown
+      return { ...node, telemetry: Array.isArray(history) ? record(history.at(-1)) : record(history) }
+    }) }
 }
 
 function normalizeLedger(value: JsonRecord): Record<string, number | null> {

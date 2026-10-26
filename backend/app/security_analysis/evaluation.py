@@ -53,7 +53,8 @@ def _calibration_metrics(model, samples, classes):
             "count": len(samples), "method": "held-out run-level reliability; lower is better"}
 
 
-def evaluate(models, runs, detector, *, source_model_path=None, alert_policy=None):
+def evaluate(models, runs, detector, *, source_model_path=None, alert_policy=None,
+             sample_builder=None, compute_importance=True):
     if models.nature_model is None or models.origin_model is None:
         raise RuntimeError("Stage B classifiers are not available")
     if not runs:
@@ -61,9 +62,10 @@ def evaluate(models, runs, detector, *, source_model_path=None, alert_policy=Non
     training_ids, training_seeds = set(models.metadata["training_run_ids"]), set(models.metadata["training_seeds"])
     if any(run.run_id in training_ids or run.seed in training_seeds for run in runs):
         raise ValueError("Held-out runs overlap training runs or seeds")
+    sampler = sample_builder or incident_sample
     samples, missed = {}, []
     for run in runs:
-        item = incident_sample(run, detector, alert_policy)
+        item = sampler(run, detector, alert_policy)
         if item is None:
             missed.append(run)
         else:
@@ -158,7 +160,7 @@ def evaluate(models, runs, detector, *, source_model_path=None, alert_policy=Non
     stealth_importance = {}
     run_by_id = {run.run_id: run for run in runs}
     for level in sorted({run.stealth_level for run in runs
-                         if run.nature == "attack" and run.stealth_level}):
+                         if compute_importance and run.nature == "attack" and run.stealth_level}):
         subset = [item for run_id, item in samples.items()
                   if (run_by_id[run_id].nature == "fault" or
                       (run_by_id[run_id].nature == "attack" and run_by_id[run_id].stealth_level == level))]

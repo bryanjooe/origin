@@ -46,11 +46,20 @@ class Store:
     def recover_interrupted(self):
         with self.lock, self.connection:
             self.connection.execute("UPDATE scenarios SET status='interrupted',updated_at=? WHERE status IN ('running','paused')", (utc_now(),))
-            for row in self.connection.execute("SELECT id,report FROM incidents WHERE status='open'").fetchall():
+            for row in self.connection.execute("SELECT id,report FROM incidents").fetchall():
                 report = json.loads(row["report"])
-                report.update(status="interrupted", interruption_reason="backend_restart")
-                report["explanation"]["recovery"] = "Backend restarted; recovery was not observed."
-                self.connection.execute("UPDATE incidents SET status='interrupted',report=? WHERE id=?", (encode(report), row["id"]))
+                interrupted = report["status"] == "open"
+                pending = (report.get("security_attribution") or {}).get("status") == "pending"
+                if not interrupted and not pending:
+                    continue
+                if interrupted:
+                    report.update(status="interrupted", interruption_reason="backend_restart")
+                    report["explanation"]["recovery"] = "Backend restarted; recovery was not observed."
+                if pending:
+                    report["security_attribution"].update(status="insufficient_evidence",
+                        reason="Backend restarted before the observed classification window completed.")
+                self.connection.execute("UPDATE incidents SET status=?,report=? WHERE id=?",
+                                        (report["status"], encode(report), row["id"]))
 
     def create_scenario(self, run_id, metadata):
         now = utc_now()
@@ -129,13 +138,23 @@ class Store:
                 report = json.loads(row["report"])
                 items.append({key: report[key] for key in ("id", "run_id", "local_id", "status", "severity",
                              "detection_tick", "detection_time_seconds", "diagnosis", "confirmation_delay_seconds", "as_of_tick")}
-                             | {"created_at": row["created_at"]})
+                             | {"created_at": row["created_at"],
+                                "security_attribution": report.get("security_attribution")})
             return {"items": items, "total": total, "limit": limit, "offset": offset}
 
     def incident(self, incident_id):
         with self.lock:
             row = self.connection.execute("SELECT report,created_at FROM incidents WHERE id=?", (incident_id,)).fetchone()
             return {**json.loads(row["report"]), "created_at": row["created_at"]} if row else None
+
+    def save_security_assessment(self, incident_id, assessment):
+        """Enrich legacy JSON reports without replacing their diagnosis or schema."""
+        with self.lock, self.connection:
+            row = self.connection.execute("SELECT report FROM incidents WHERE id=?", (incident_id,)).fetchone()
+            if row is not None:
+                report = json.loads(row["report"])
+                report["security_attribution"] = assessment
+                self.connection.execute("UPDATE incidents SET report=? WHERE id=?", (encode(report), incident_id))
 
     def events(self, run_id=None, after=0, limit=100):
         with self.lock:

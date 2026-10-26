@@ -14,7 +14,7 @@ from app.detection import AnomalyDetector, FeatureExtractor
 from app.fault_injection import Fault
 from app.fault_injection.engine import MODES
 from app.simulator import GridConfig, MicrogridSimulator
-from .features import FEATURE_NAMES, WINDOW_TICKS, extract_window
+from .features import FEATURE_NAMES, WINDOW_TICKS, configured_features, extract_window
 
 
 @dataclass(frozen=True)
@@ -259,6 +259,51 @@ def incident_sample(run: SimulatedRun, detector: AnomalyDetector, alert_policy: 
             "detection_delay_ticks": max(0, fire_tick - run.start_tick),
             "inference_delay_ticks": max(0, infer_tick - run.start_tick),
             "telemetry_window": rows}
+
+
+def observed_incident_windows(telemetry, statuses, config, policy):
+    """Replay the existing incident lifecycle and gate on observations only.
+
+    Complete windows may extend past observed recovery, exactly as the live
+    runtime's pending queue does. Hidden event ends never truncate features.
+    """
+    from app.explainability.incidents import IncidentTracker
+    if len(telemetry) != len(statuses):
+        raise ValueError("Telemetry and detector outputs must cover the same observed ticks")
+    tracker = IncidentTracker()
+    for row, status in zip(telemetry, statuses):
+        tracker.update(row, status)
+    windows = []
+    for report in tracker.reports():
+        first, last = report["first_observed_tick"], report["as_of_tick"]
+        fire = _first_policy_fire([status for status in statuses if first <= status["tick"] <= last], policy)
+        if fire is None or fire + WINDOW_TICKS > len(telemetry):
+            continue
+        rows = telemetry[fire:fire + WINDOW_TICKS]
+        if [row["tick"] for row in rows] != list(range(fire, fire + WINDOW_TICKS)):
+            raise ValueError("Observation windows require consecutive ticks from one run")
+        baseline = telemetry[max(0, fire - WINDOW_TICKS):fire]
+        windows.append({"features": configured_features(rows, config, baseline_rows=baseline),
+            "detector_fire_tick": fire, "inference_tick": fire + WINDOW_TICKS - 1,
+            "telemetry_window": rows, "first_observed_tick": first})
+    return windows
+
+
+def live_incident_sample(run, detector, policy, *, statuses=None):
+    """Offline event matching uses labels only AFTER observable windows are built."""
+    if statuses is None:
+        statuses = detector.predict(FeatureExtractor(run.config).transform(run.telemetry))
+    windows = observed_incident_windows(run.telemetry, statuses, run.config, policy)
+    eligible = windows if run.nature == "normal" else [window for window in windows
+        if run.start_tick <= window["detector_fire_tick"] < run.start_tick + run.duration_ticks]
+    if not eligible:
+        return None
+    window = eligible[0]
+    return {**window, "run_id": run.run_id, "seed": run.seed,
+        "nature": run.nature, "origin_layer": run.origin_layer, "scenario_type": run.scenario_type,
+        "mode": run.mode, "stealth_level": run.stealth_level, "severity": run.severity,
+        "detection_delay_ticks": max(0, window["detector_fire_tick"] - run.start_tick),
+        "inference_delay_ticks": max(0, window["inference_tick"] - run.start_tick)}
 
 
 def feature_frame(samples):

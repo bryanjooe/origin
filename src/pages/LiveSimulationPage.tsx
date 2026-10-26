@@ -7,6 +7,7 @@ import type { ComponentStatus } from '../types/domain'
 import { normalizeTelemetry } from '../utils/data'
 import { TimeSeriesChart } from '../components/charts/TimeSeriesChart'
 import { Badge, Button, Card, EmptyState } from '../components/ui'
+import { CyberattackInjection } from '../components/CyberattackInjection'
 import { getSeverity, simulationLabel } from '../utils/status'
 
 const scenarios = [
@@ -36,14 +37,15 @@ export function LiveSimulationPage() {
   const components = system.data?.components ?? []
   const simulationSeconds = system.data?.simulation_time_seconds ?? system.data?.sim_time_seconds
 
-  async function perform(name: string, task: () => Promise<unknown>) {
+  async function perform<T,>(name: string, task: () => Promise<T>): Promise<T | undefined> {
     if (actionLock.current || pending) return
     actionLock.current = true
     setPending(name)
     setActionError(null)
     try {
-      await task()
+      const result = await task()
       system.reload()
+      return result
     } catch (error) {
       setActionError(error instanceof Error ? error.message : 'Simulation action failed.')
     } finally {
@@ -108,6 +110,10 @@ export function LiveSimulationPage() {
           {!system.data && !system.loading && <EmptyState title="Clock unavailable" detail={system.error ?? 'No simulation state returned by the API.'} kind={system.error ? 'error' : 'unknown'} />}
         </Card>
       </div>
+
+      <CyberattackInjection nextTick={system.data?.next_tick} runId={system.data?.run_id}
+        disabled={pending !== null || !system.data || !!system.error || status === 'unknown'} loading={pending === 'attack'}
+        onSchedule={(payload) => perform('attack', () => api.injectAttack(payload))} />
 
       <div className="two-column-grid simulation-lower">
         <Card title="Live power telemetry" eyebrow="TELEMETRY / STREAM" action={<span className="micro-label">LAST {normalized.length} SAMPLES</span>}>

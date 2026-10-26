@@ -16,7 +16,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.api.config import ServerSettings
 from app.api.runtime import RuntimeConflict, SimulationRuntime
 from app.propagation import build_topology
-from app.schemas.api import (Envelope, ErrorEnvelope, EvaluateRequest, FaultRequest, ResetRequest,
+from app.propagation.investigation import evidence_graph
+from app.schemas.api import (AttackRequest, Envelope, ErrorEnvelope, EvaluateRequest, FaultRequest, ResetRequest,
                              ScenarioRequest, SpeedRequest, StartRequest, StepRequest)
 
 
@@ -128,6 +129,10 @@ def create_app(settings: ServerSettings | None = None):
     async def inject(request: Request, body: FaultRequest):
         return ok(await runtime(request).inject(body))
 
+    @app.post("/api/simulation/inject-attack", response_model=Envelope)
+    async def inject_attack(request: Request, body: AttackRequest):
+        return ok(await runtime(request).inject_attack(body))
+
     @app.post("/api/simulation/correct", response_model=Envelope)
     async def correct(request: Request):
         return ok(await runtime(request).correct())
@@ -170,7 +175,13 @@ def create_app(settings: ServerSettings | None = None):
             report = service.store.incident(incident_id)
             if report is None:
                 raise HTTPException(404, "Incident not found")
-            report["security_attribution"] = service.security_attribution(report)
+            if report.get("security_attribution") is None:
+                assessment = service.security_attribution(report)
+                if assessment.get("status") == "pending" and report["status"] != "open":
+                    assessment.update(status="insufficient_evidence", reason="Historical incident has insufficient observed telemetry for a complete window.")
+                report["security_attribution"] = assessment
+                service.store.save_security_assessment(incident_id, assessment)
+            report["graph"] = evidence_graph(report["graph"], report["security_attribution"], report.get("evidence", []))
             return ok(report)
 
     @app.get("/api/incidents/{incident_id}/graph", response_model=Envelope)

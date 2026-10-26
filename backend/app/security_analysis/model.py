@@ -158,6 +158,12 @@ class AttributionModels:
         nature_score = float(nature_top[1])
         nature_internal = str(nature_top[0])
         nature_label = NATURE_DISPLAY[nature_internal]
+        nature_margin = nature_score - float(nature_second[1])
+        nature_reasons = []
+        if nature_score < self.policy.nature_minimum:
+            nature_reasons.append("Nature score is below the artifact's minimum")
+        if nature_margin < self.policy.margin_minimum:
+            nature_reasons.append("Nature top-two margin is below the artifact's minimum")
         if (nature_score < self.policy.nature_minimum or
                 nature_score - float(nature_second[1]) < self.policy.margin_minimum):
             nature_label = "Undetermined"
@@ -170,11 +176,26 @@ class AttributionModels:
         origin_score = float(origin_top[1])
         origin_internal = str(origin_top[0])
         origin_label = ORIGIN_DISPLAY[origin_internal]
-        if (nature_internal == "normal" or nature_label == "Undetermined" or
+        requires_nature = self.metadata.get("origin_requires_determined_nature", True)
+        origin_margin = origin_score - float(origin_second[1])
+        origin_reasons = []
+        if nature_internal == "normal":
+            origin_reasons.append("Nature model favors Normal; no incident origin is established")
+        if nature_label == "Undetermined" and requires_nature:
+            origin_reasons.append("Legacy artifact couples origin acceptance to nature acceptance")
+        if origin_score < self.policy.origin_minimum:
+            origin_reasons.append("Origin score is below the artifact's minimum")
+        if origin_margin < self.policy.margin_minimum:
+            origin_reasons.append("Origin top-two margin is below the artifact's minimum")
+        if (nature_internal == "normal" or (nature_label == "Undetermined" and requires_nature) or
                 origin_score < self.policy.origin_minimum or
                 origin_score - float(origin_second[1]) < self.policy.margin_minimum):
             origin_label = "Unknown"
         return {"available": True, "nature": nature_label,
+                "nature_margin": nature_margin, "origin_margin": origin_margin,
+                "raw_origin_confidence": origin_score, "abstention_policy": asdict(self.policy),
+                "origin_independent_of_nature": not requires_nature,
+                "nature_abstention_reasons": nature_reasons, "origin_abstention_reasons": origin_reasons,
                 "nature_confidence": nature_score,
                 "nature_candidates": [{"nature": str(name), "confidence": float(score)}
                                       for name, score in nature_ranked],
