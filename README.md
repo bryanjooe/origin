@@ -15,10 +15,13 @@ service. An optional AI adapter can connect to a separately deployed model servi
 Installation needs PyPI access; simulation and tests run offline after installation.
 
 ```powershell
-python -m venv .venv
+py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r backend/requirements.txt
 $env:PYTHONPATH = 'backend'
+$env:TRACEX_ENV = 'development'
 $env:TRACEX_DATABASE_URL = 'postgresql+psycopg://tracex_user:CHANGE_ME@localhost:5432/tracex_greengrid'
+$env:TRACEX_CORS_ORIGINS = 'http://localhost:3000,http://127.0.0.1:3000'
+$env:TRACEX_API_TOKENS = '{"<random-local-token-of-32-characters-or-more>":"local-operator"}'
 .\.venv\Scripts\python.exe -m alembic -c backend/alembic.ini upgrade head
 .\.venv\Scripts\python.exe -m pytest -q
 $env:PYTHONPATH = 'backend'
@@ -47,6 +50,7 @@ backend/
     propagation/        # NetworkX dependency graph and downstream traversal
     api/                # FastAPI routes, typed schemas, settings, errors, services
     persistence/        # PostgreSQL entities, repository, managed result files
+    smoke_test.py       # Authenticated run/restart/persistence smoke flow
   migrations/           # Additive Alembic schema migrations
   tests/                # Simulator, faults, graph, exports, and API checks
   requirements.txt
@@ -76,6 +80,8 @@ remain synchronous.
 
 See [simulation documentation](docs/simulation.md) for fault modes, field semantics,
 energy accounting, graph limitations, and the next-stage boundary. See
-[API documentation](docs/api.md) for endpoints, request limits, CORS configuration,
-export authorization, and current persistence limitations. Copy `.env.example` for
-the available settings; the API reads them from process environment variables.
+[API documentation](docs/api.md) for endpoints, schemas, OpenAPI, and examples. See
+[deployment instructions](docs/deployment.md) for reproducible environment setup,
+production Uvicorn startup, health checks, and the persistence smoke test. Copy
+`.env.example` for available settings; the API reads them from process environment
+variables and does not load the file automatically.

@@ -81,6 +81,14 @@ def test_health_fault_catalog_and_cors_settings():
     with make_client(origins=("http://localhost:3000",)) as client:
         assert client.get("/api/v1/health/live").json() == {"status": "ok"}
         assert client.get("/api/v1/health/ready").json() == {"status": "ready"}
+        dependencies = client.get("/api/v1/health/dependencies").json()
+        assert dependencies == {
+            "api": "ok", "database": "ready", "ai_service": "not_configured"
+        }
+        openapi = client.get("/openapi.json").json()
+        assert "HTTPBearer" in openapi["components"]["securitySchemes"]
+        assert openapi["paths"]["/api/v1/runs"]["post"]["security"]
+        assert "security" not in openapi["paths"]["/api/v1/health/live"]["get"]
         catalog = client.get("/api/v1/fault-types").json()
         families = {family["name"]: {mode["name"] for mode in family["modes"]}
                     for family in catalog["fault_types"]}
@@ -299,6 +307,9 @@ def test_auth_body_limit_and_live_readiness_failures():
         response = client.get("/api/v1/health/ready")
         assert response.status_code == 503
         assert "private database detail" not in response.text
+        dependencies = client.get("/api/v1/health/dependencies")
+        assert dependencies.status_code == 200
+        assert dependencies.json()["database"] == "unavailable"
         repository.check_ready = original
 
 
@@ -310,6 +321,15 @@ def test_private_rate_limit_returns_structured_429():
         response = client.get("/api/v1/incidents")
         assert response.status_code == 429
         assert response.json()["error"]["code"] == "rate_limited"
+
+
+def test_dependency_health_marks_configured_ai_as_unverified():
+    with make_client(analysis_provider=object()) as client:
+        response = client.get("/api/v1/health/dependencies")
+        assert response.status_code == 200
+        assert response.json() == {
+            "api": "ok", "database": "ready", "ai_service": "configured_unverified"
+        }
 
 
 def test_download_size_limit_is_enforced(monkeypatch):

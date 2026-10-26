@@ -90,6 +90,11 @@ def create_app(
     app.state.incident_service = IncidentService(repository)
     app.state.analysis_service = analysis_service
     app.state.analysis_coordinator = analysis_coordinator
+    app.state.ai_service_status = (
+        "not_configured"
+        if isinstance(provider, UnavailableAnalysisProvider)
+        else "configured_unverified"
+    )
     app.state.authenticator = PrincipalAuthenticator(api_settings.api_tokens)
     app.state.rate_limiter = PrincipalRateLimiter()
     app.state.persistence_ready = False

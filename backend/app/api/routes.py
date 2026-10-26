@@ -22,6 +22,7 @@ from .schemas import (
     AnalysisSubmissionInput,
     ControllerLogsResponse,
     CorrectionResponse,
+    DependencyHealthResponse,
     DownstreamResponse,
     ExportListResponse,
     FaultCatalogResponse,
@@ -99,6 +100,25 @@ def readiness(request: Request) -> dict:
     except SQLAlchemyError:
         raise APIError(503, "not_ready", "Persistent storage is unavailable.") from None
     return {"status": "ready"}
+
+
+@router.get(
+    "/health/dependencies",
+    response_model=DependencyHealthResponse,
+    tags=["health"],
+)
+def dependency_health(request: Request) -> dict:
+    try:
+        request.app.state.repository.check_ready()
+    except SQLAlchemyError:
+        database_status = "unavailable"
+    else:
+        database_status = "ready"
+    return {
+        "api": "ok",
+        "database": database_status,
+        "ai_service": request.app.state.ai_service_status,
+    }
 
 
 @router.get("/fault-types", response_model=FaultCatalogResponse, tags=["simulation"])

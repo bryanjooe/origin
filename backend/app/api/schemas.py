@@ -280,6 +280,12 @@ class HealthResponse(StrictModel):
     status: Literal["ok", "ready"]
 
 
+class DependencyHealthResponse(StrictModel):
+    api: Literal["ok"]
+    database: Literal["ready", "unavailable"]
+    ai_service: Literal["not_configured", "configured_unverified"]
+
+
 IncidentStatus = Literal["open", "investigating", "resolved", "closed"]
 
 _GROUND_TRUTH_KEYS = {

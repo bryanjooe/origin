@@ -119,9 +119,10 @@ fault classes, or accuracy semantics that the AI team has not defined.
   failed jobs; provider response bodies, credentials, and stack traces are not
   returned to API clients.
 
-The current backend does not authenticate analysis submission/status routes. Keep
-them on a trusted network until the project defines a general API identity and access
-policy. The optional provider bearer credential is sent only server-to-server.
+Analysis submission and status routes require the configured API bearer token and are
+scoped to the authenticated principal's simulation runs and analysis records. The
+optional provider bearer credential is sent only server-to-server and is separate
+from client authentication.
 
 ## Configuration and local adapters
 

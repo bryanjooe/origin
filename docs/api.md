@@ -24,8 +24,8 @@ $env:TRACEX_API_TOKENS = '{"replace-with-random-token-of-32-characters-or-more":
 
 The application reads settings from process environment variables. `.env.example`
 documents their names; the API does not load `.env` files automatically.
-Interactive OpenAPI documentation is available at `/docs` while the server is
-running.
+The OpenAPI contract is served at `/openapi.json`; Swagger UI is available at
+`/docs` and ReDoc at `/redoc` while the server is running.
 
 ## Settings and security
 
@@ -73,7 +73,8 @@ All application routes are under `/api/v1`.
 | Method and path | Contract |
 | --- | --- |
 | `GET /health/live` | Process liveness. |
-| `GET /health/ready` | Database schema and run replay readiness. |
+| `GET /health/ready` | Database connectivity and startup replay readiness; returns 503 when unavailable. |
+| `GET /health/dependencies` | Public status split for API, database connection, and AI configuration. AI is `configured_unverified` until the AI team supplies a health-check contract. |
 | `GET /fault-types` | Existing families/modes and the simulator's severity, duration, and start-tick constraints. |
 | `POST /runs` | Create a run with optional complete `GridConfig` fields, integer seed, and optional initial fault schedule. Returns 201. |
 | `GET /runs/{run_id}` | Run status, current tick, config, timestamps, and bounds. |
@@ -96,11 +97,10 @@ All application routes are under `/api/v1`.
 
 Tick ranges are half-open and must satisfy `0 <= start_tick <= end_tick <= current_tick`.
 Invalid configuration or fault parameters return 422; overlapping fault schedules
-return 409; a missing run/component returns 404; unauthorized downloads return 401.
-Unauthorized private operations return 401; when the token map is empty they return 503. Unexpected
+return 409; a missing or owner-inaccessible record/component returns 404. Unauthorized
+private operations return 401; when the token map is empty they return 503. Unexpected
 failures return a generic 500 with a request ID; logs omit exception text and payloads.
-Private routes return 401 for missing/invalid authorization and 503 when no
-principals are configured. Categories and priorities are caller-provided text because
+Categories and priorities are caller-provided text because
 the repository defines no incident taxonomy or priority scale.
 
 ## Example
@@ -113,9 +113,57 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/api/v1/runs `
   -ContentType 'application/json' -Body '{"seed":42,"config":{"start_hour":17.0}}'
 ```
 
-The create response includes an opaque `run_id`. Advance with
-`POST /api/v1/runs/{run_id}/advance` and body `{"ticks": 180}`, then read telemetry
-or controller logs. Send `Authorization: Bearer <token>` to access private resources.
+The create call returns an opaque `run_id`. The frontend can advance the run, poll
+status, and fetch telemetry using this contract:
+
+```http
+POST /api/v1/runs
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{"seed":42,"config":{"start_hour":17.0}}
+```
+
+```json
+{
+  "run_id": "e594f054-0ab0-4a3e-b598-d881ed20d2ef",
+  "status": "ready",
+  "seed": 42,
+  "current_tick": 0,
+  "max_ticks": 10000,
+  "tick_seconds": 60.0,
+  "created_at": "2026-01-01T00:00:00+00:00",
+  "updated_at": "2026-01-01T00:00:00+00:00",
+  "error": null
+}
+```
+
+The timestamp and UUID above are illustrative. Advance and retrieve typed status and
+telemetry with:
+
+```http
+POST /api/v1/runs/e594f054-0ab0-4a3e-b598-d881ed20d2ef/advance
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{"ticks":3}
+```
+
+```json
+{"run_id":"e594f054-0ab0-4a3e-b598-d881ed20d2ef","status":"ready","advanced_ticks":3,"current_tick":3}
+```
+
+```http
+GET /api/v1/runs/e594f054-0ab0-4a3e-b598-d881ed20d2ef/telemetry?start_tick=0&end_tick=3
+Authorization: Bearer <token>
+```
+
+The telemetry response is `{ "run_id": "<uuid>", "start_tick": 0,
+"end_tick": 3, "rows": [<three typed TelemetryRow objects>] }`. The exact row
+schema is published in `/openapi.json`. Result metadata is available at
+`GET /api/v1/runs/{run_id}/results`; download CSV or JSON through the authorized
+`GET /api/v1/runs/{run_id}/exports/{csv|json}` route. Responses never expose local
+filesystem paths. Error responses use the structured shape above.
 
 ## Persistence, migrations, and data boundaries
 

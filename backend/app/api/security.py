@@ -9,7 +9,8 @@ import threading
 import time
 from uuid import uuid4
 
-from fastapi import Header, Request
+from fastapi import Depends, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.responses import JSONResponse
 
 from .errors import APIError
@@ -17,6 +18,7 @@ from .errors import APIError
 
 _SUBJECT_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$")
 MAX_REQUEST_BODY_BYTES = 128 * 1024
+_bearer_scheme = HTTPBearer(auto_error=False)
 
 
 class PrincipalAuthenticator:
@@ -148,8 +150,12 @@ class RequestHardeningMiddleware:
 
 def authenticated_principal(
     request: Request,
-    authorization: str | None = Header(default=None),
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
 ) -> str:
+    authorization = (
+        f"{credentials.scheme} {credentials.credentials}"
+        if credentials is not None else None
+    )
     principal = request.app.state.authenticator.authenticate(authorization)
     request.app.state.rate_limiter.check(
         principal, request.method, request.url.path

@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from pathlib import Path
+import time
 from uuid import uuid4
 
 from alembic import command
@@ -14,6 +15,7 @@ from app.api.config import APISettings
 from app.api.errors import APIError
 from app.api.main import create_app
 from app.api.service import SimulationService
+from app.smoke_test import run_smoke
 from pydantic import ValidationError
 from app.persistence.artifacts import FileArtifactStore
 from app.persistence.database import Database
@@ -44,6 +46,25 @@ def test_artifact_store_rejects_path_traversal_and_modified_chunks(tmp_path):
              "sha256": "0" * 64}
     with pytest.raises(ValueError, match="integrity"):
         store.read_telemetry_chunks([chunk], 0, 1)
+
+
+def test_end_to_end_smoke_persists_across_application_restart(tmp_path):
+    database_path = tmp_path / "smoke.sqlite"
+    database_url = f"sqlite+pysqlite:///{database_path.as_posix()}"
+    database = Database(database_url)
+    Base.metadata.create_all(database.engine)
+    database.dispose()
+    settings = APISettings(
+        database_url=database_url,
+        data_dir=str(tmp_path / "smoke-results"),
+        api_tokens={PERSISTENCE_TOKEN: "smoke-user"},
+    )
+
+    result = run_smoke(settings)
+
+    assert result["status"] == "passed"
+    assert result["ticks_persisted"] == 3
+    assert result["restarted_app_verified"] is True
 
 
 def build_test_app(database_url: str, data_dir: Path):
@@ -219,6 +240,24 @@ def test_run_and_telemetry_survive_application_restart_and_replay_deterministica
         assert client.post(f"/api/v1/runs/{run_id}/advance", json={"ticks": 3}).status_code == 200
         assert client.post(f"/api/v1/runs/{run_id}/correct").status_code == 200
         assert client.post(f"/api/v1/runs/{run_id}/advance", json={"ticks": 2}).status_code == 200
+        analysis_response = client.post(
+            f"/api/v1/runs/{run_id}/analyses",
+            headers={"Idempotency-Key": "restart-analysis-0001"},
+            json={"start_tick": 0, "end_tick": 2},
+        )
+        assert analysis_response.status_code == 202, analysis_response.text
+        analysis_id = analysis_response.json()["analysis_id"]
+        analysis = None
+        for _ in range(100):
+            response = client.get(f"/api/v1/analyses/{analysis_id}")
+            assert response.status_code == 200
+            analysis = response.json()
+            if analysis["status"] in {"failed", "completed"}:
+                break
+            time.sleep(0.01)
+        assert analysis["status"] == "failed"
+        assert analysis["failure_code"] == "provider_unavailable"
+        assert analysis["result"] is None
         before_restart = client.get(f"/api/v1/runs/{run_id}/telemetry").json()["rows"]
         results = client.get(f"/api/v1/runs/{run_id}/results").json()
         assert {item["artifact_type"] for item in results["artifacts"]} >= {
@@ -238,6 +277,11 @@ def test_run_and_telemetry_survive_application_restart_and_replay_deterministica
         )
         assert persisted_incident.status_code == 200
         assert persisted_incident.json()["title"] == "Persisted operator report"
+        persisted_analysis = client.get(f"/api/v1/analyses/{analysis_id}")
+        assert persisted_analysis.status_code == 200
+        assert persisted_analysis.json()["status"] == "failed"
+        assert persisted_analysis.json()["failure_code"] == "provider_unavailable"
+        assert persisted_analysis.json()["result"] is None
         after_restart = client.get(f"/api/v1/runs/{run_id}/telemetry").json()["rows"]
         assert after_restart == before_restart
         assert "scenario_ground_truth" not in client.get(

@@ -11,7 +11,7 @@ No sustainability attribution or AI performance claims are supported by this pro
 
 ## Verified current state
 
-This security-hardening pass is based on commit `05fee85` (`AI Integration with database`).
+This deployment and integration pass is based on commit `a56ccff` (`Security Testing`).
 The backend includes the previously implemented API, persistence, and provider contract
 plus the ownership, authentication, limits, and operational fixes described below.
 
@@ -80,12 +80,15 @@ Never reset or drop a database to apply migrations.
 
 ## Verification and limitations
 
-- Full suite after the security-hardening pass: **104 passed**, one Starlette/AnyIO
+- Full suite after the deployment/integration pass: **106 passed**, one Starlette/AnyIO
   `BlockingPortal` deprecation warning. This includes Stage 1, API, persistence,
   restart/migration, mocked AI integration, ownership isolation, request limits,
-  readiness, and artifact path/integrity tests. Environment: Python 3.12 and
-  pinned requirements. Provider tests use local `httpx.MockTransport` and test
+  readiness, artifact path/integrity, and end-to-end restart smoke tests. Environment:
+  Python 3.12 and pinned requirements. Provider tests use local `httpx.MockTransport` and test
   fixtures, not a paid endpoint or model evaluation.
+- Uvicorn was started locally against a migrated isolated SQLite database; liveness,
+  readiness, authenticated run creation/advance/status, telemetry, and result metadata
+  checks passed. This is not PostgreSQL or cloud deployment verification.
 - No live PostgreSQL server was available; PostgreSQL-specific runtime behavior still
   needs environment verification.
 - Simulator locks and restored simulator instances are process-local. The documented
@@ -112,6 +115,8 @@ Never reset or drop a database to apply migrations.
 - `docs/simulation.md`: simulator equations and semantics.
 - `docs/stage1-validation.md`: original Stage 1 test/demo record.
 - `docs/api.md`: API endpoints, persistence, migrations, security, and limitations.
+- `docs/deployment.md`: Python setup, environment, migration, server commands, health,
+  and persistent smoke test.
 - `docs/ai-integration.md`: AI provider contract, payload schemas, and connection steps.
 
 No model quality or localization accuracy has been measured.
