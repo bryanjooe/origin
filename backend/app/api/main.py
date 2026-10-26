@@ -3,9 +3,8 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 import logging
-from uuid import uuid4
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.ai.contracts import AnalysisProvider
@@ -16,6 +15,7 @@ from .analysis_service import AIAnalysisService
 from .errors import install_exception_handlers
 from .incident_service import IncidentService
 from .routes import router
+from .security import PrincipalAuthenticator, PrincipalRateLimiter, RequestHardeningMiddleware
 from .service import SimulationService
 from app.persistence.artifacts import FileArtifactStore
 from app.persistence.database import Database
@@ -67,9 +67,11 @@ def create_app(
             logging.getLogger("tracex.api").error("Persistence is not ready; apply migrations and check the database.")
             app.state.persistence_ready = False
         yield
-        analysis_coordinator.shutdown()
-        if owns_database:
-            api_database.dispose()
+        try:
+            analysis_coordinator.shutdown()
+        finally:
+            if owns_database:
+                api_database.dispose()
 
     app = FastAPI(
         title="TraceX GreenGrid API",
@@ -79,6 +81,7 @@ def create_app(
         ),
         version="1.0.0",
         lifespan=lifespan,
+        debug=False,
     )
     app.state.settings = api_settings
     app.state.database = api_database
@@ -87,24 +90,20 @@ def create_app(
     app.state.incident_service = IncidentService(repository)
     app.state.analysis_service = analysis_service
     app.state.analysis_coordinator = analysis_coordinator
+    app.state.authenticator = PrincipalAuthenticator(api_settings.api_tokens)
+    app.state.rate_limiter = PrincipalRateLimiter()
     app.state.persistence_ready = False
-
-    @app.middleware("http")
-    async def attach_request_id(request: Request, call_next):
-        request_id = uuid4().hex
-        request.state.request_id = request_id
-        response = await call_next(request)
-        response.headers["X-Request-ID"] = request_id
-        return response
 
     if api_settings.cors_origins:
         app.add_middleware(
             CORSMiddleware,
             allow_origins=list(api_settings.cors_origins),
             allow_credentials=False,
-            allow_methods=["GET", "POST", "OPTIONS"],
+            allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
             allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
         )
+
+    app.add_middleware(RequestHardeningMiddleware)
 
     install_exception_handlers(app)
     app.include_router(router)

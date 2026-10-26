@@ -17,8 +17,7 @@ $env:PYTHONPATH = 'backend'
 $env:TRACEX_DATABASE_URL = 'postgresql+psycopg://tracex_user:CHANGE_ME@localhost:5432/tracex_greengrid'
 $env:TRACEX_DATA_DIR = './data'
 $env:TRACEX_CORS_ORIGINS = 'http://localhost:3000,http://127.0.0.1:3000'
-$env:TRACEX_EXPORT_API_KEY = 'set-a-private-value-before-starting-the-server'
-$env:TRACEX_INCIDENT_API_KEY = 'set-a-different-private-value-before-starting-the-server'
+$env:TRACEX_API_TOKENS = '{"replace-with-random-token-of-32-characters-or-more":"operator-1"}'
 .\.venv\Scripts\python.exe -m alembic -c backend/alembic.ini upgrade head
 .\.venv\Scripts\python.exe -m uvicorn app.api.main:app --host 127.0.0.1 --port 8000
 ```
@@ -32,24 +31,27 @@ running.
 
 | Variable | Behavior |
 | --- | --- |
-| `TRACEX_ENV` | `development` by default. Setting it to `production` rejects wildcard CORS origins. |
+| `TRACEX_ENV` | `development` by default. `production` requires PostgreSQL and at least one 32-character API token, and rejects wildcard CORS. |
 | `TRACEX_CORS_ORIGINS` | Comma-separated exact origins. Defaults to no CORS origins in every environment. |
 | `TRACEX_DATABASE_URL` | SQLAlchemy URL for PostgreSQL, e.g. `postgresql+psycopg://user:password@host:5432/database`. No credential is embedded in the application default. |
 | `TRACEX_DATA_DIR` | Managed artifact root. Defaults to `./data`; keep it on durable storage and outside public web roots. |
-| `TRACEX_EXPORT_API_KEY` | Server-side bearer key required for result downloads. If unset, downloads return 503. |
-| `TRACEX_INCIDENT_API_KEY` | Independent bearer key required for incident CRUD. If unset, incident routes return 503. |
+| `TRACEX_API_TOKENS` | JSON map of opaque bearer tokens to stable principal IDs. Production tokens must be at least 32 characters. All private resources are scoped to the principal. |
 | `TRACEX_AI_SERVICE_URL` | Optional separately deployed model service base URL. Unset disables inference and produces failed `provider_unavailable` jobs. |
 | `TRACEX_AI_SERVICE_API_KEY` | Optional bearer credential sent only to the configured AI provider. |
 | `TRACEX_AI_TIMEOUT_SECONDS` | Per-call timeout; defaults to 10 seconds and is capped at 120. |
 | `TRACEX_AI_MAX_RETRIES` | Bounded retries for transient transport errors, HTTP 408/429, and 5xx; defaults to 1 and is capped at 3. |
 | `TRACEX_AI_WORKERS`, `TRACEX_AI_QUEUE_SIZE` | In-process analysis worker and queue bounds; defaults to 2 workers and 8 queued jobs. |
 
-The API returns `Authorization: Bearer <key>` credentials only as request headers;
-they are never echoed in responses. Store the key in the server environment or a
-secret manager. Do not commit a populated `.env` file. Other API routes currently
-have no authentication or tenant isolation and should remain on a trusted local
-network until those controls are added. Incident routes use the dedicated incident
-key; export downloads use the export key. Neither is returned by the API.
+Send `Authorization: Bearer <token>` on every private endpoint. Liveness, readiness,
+fault catalog, and topology are public. Runs, telemetry, analysis jobs, incidents,
+and downloads require a configured token and are scoped to its principal ID.
+Unknown or ownerless legacy records return 404, preventing existence disclosure.
+Store the token map in a deployment secret store and never commit populated values.
+Private operations have per-principal rate limits, request bodies are capped at
+128 KiB, and result downloads are capped at 16 MiB.
+Current per-minute limits are 120 general requests, 10 run creations, 30 advances,
+5 analysis submissions, and 30 incident writes per principal. These limits are
+in-process and reset when the service restarts.
 
 Errors use this shape and omit rejected input values and internal exception detail:
 
@@ -95,23 +97,25 @@ All application routes are under `/api/v1`.
 Tick ranges are half-open and must satisfy `0 <= start_tick <= end_tick <= current_tick`.
 Invalid configuration or fault parameters return 422; overlapping fault schedules
 return 409; a missing run/component returns 404; unauthorized downloads return 401.
-If the export key is not configured, download attempts return 503. Unexpected
-failures return a generic 500 with a request ID; details are logged server-side.
-Incident routes return 401 for missing/invalid authorization and 503 when their
-key is not configured. Categories and priorities are caller-provided text because
+Unauthorized private operations return 401; when the token map is empty they return 503. Unexpected
+failures return a generic 500 with a request ID; logs omit exception text and payloads.
+Private routes return 401 for missing/invalid authorization and 503 when no
+principals are configured. Categories and priorities are caller-provided text because
 the repository defines no incident taxonomy or priority scale.
 
 ## Example
 
 ```powershell
-$env:TRACEX_EXPORT_API_KEY = 'set-a-private-value-before-starting-the-server'
+$env:TRACEX_API_TOKENS = '{"replace-with-random-token-of-32-characters-or-more":"operator-1"}'
+$token = 'replace-with-random-token-of-32-characters-or-more'
 Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/api/v1/runs `
+  -Headers @{ Authorization = "Bearer $token" } `
   -ContentType 'application/json' -Body '{"seed":42,"config":{"start_hour":17.0}}'
 ```
 
 The create response includes an opaque `run_id`. Advance with
 `POST /api/v1/runs/{run_id}/advance` and body `{"ticks": 180}`, then read telemetry
-or controller logs. Downloads require `Authorization: Bearer $env:TRACEX_EXPORT_API_KEY`.
+or controller logs. Send `Authorization: Bearer <token>` to access private resources.
 
 ## Persistence, migrations, and data boundaries
 
@@ -127,6 +131,11 @@ Create the PostgreSQL database and role through your approved local PostgreSQL
 administration workflow, then provide the connection string through the environment.
 The migration is additive and deliberately has no destructive downgrade. Never put a
 real password in `.env.example` or commit a populated `.env` file.
+
+Migration `0003_resource_owners` adds nullable owner IDs to runs, incidents, and AI
+analysis records and scopes idempotency keys per principal. Existing records are
+preserved with `owner_id = NULL`; the private API does not expose them. Assign legacy
+ownership only through an audited administrative process before exposing those rows.
 
 The schema includes `simulation_runs`, restricted `fault_scenarios`, an ordered
 `simulation_commands` replay journal, `simulation_result_metadata`, `incidents`, and

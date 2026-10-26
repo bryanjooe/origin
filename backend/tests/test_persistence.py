@@ -29,6 +29,22 @@ from app.persistence.models import (
 from app.persistence.repository import SQLAlchemyRepository
 from app.simulator import GridConfig, MicrogridSimulator
 
+PERSISTENCE_TOKEN = "persistence-test-token-0123456789abcdef0123456789"
+
+
+def test_artifact_store_rejects_path_traversal_and_modified_chunks(tmp_path):
+    store = FileArtifactStore(tmp_path / "artifacts")
+    with pytest.raises(ValueError, match="Artifact path is invalid|outside"):
+        store._resolve("../outside.json")
+    with pytest.raises(ValueError, match="Artifact path is invalid|outside"):
+        store._resolve(r"..\outside.json")
+
+    artifact = store.write_telemetry_chunk("run", 0, 1, [{"tick": 0, "value": 1}])
+    chunk = {"relative_path": artifact.relative_path, "size_bytes": artifact.size_bytes,
+             "sha256": "0" * 64}
+    with pytest.raises(ValueError, match="integrity"):
+        store.read_telemetry_chunks([chunk], 0, 1)
+
 
 def build_test_app(database_url: str, data_dir: Path):
     database = Database(database_url)
@@ -38,8 +54,11 @@ def build_test_app(database_url: str, data_dir: Path):
     settings = APISettings(
         database_url=database_url,
         data_dir=str(data_dir),
-        export_api_key="export-test-key",
-        incident_api_key="incident-test-key",
+        api_tokens={
+            PERSISTENCE_TOKEN: "persistence-user",
+            "export-test-key-0123456789abcdef0123456789": "persistence-user",
+            "incident-test-key-0123456789abcdef0123456789": "persistence-user",
+        },
     )
     app = create_app(
         settings=settings,
@@ -86,7 +105,10 @@ def test_alembic_migration_creates_schema_without_destructive_downgrade(tmp_path
         "ai_analysis_records",
     }.issubset(tables)
     with engine.connect() as connection:
-        assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "0002_ai_integration"
+        assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "0003_resource_owners"
+    inspector = inspect(engine)
+    for table in ("simulation_runs", "incidents", "ai_analysis_records"):
+        assert "owner_id" in {column["name"] for column in inspector.get_columns(table)}
     engine.dispose()
 
 
@@ -158,7 +180,7 @@ def test_run_and_telemetry_survive_application_restart_and_replay_deterministica
     first_app, first_db, _, _ = build_test_app(database_url, tmp_path / "managed-results")
     Base.metadata.create_all(first_db.engine)
 
-    with TestClient(first_app) as client:
+    with TestClient(first_app, headers={"Authorization": f"Bearer {PERSISTENCE_TOKEN}"}) as client:
         created = client.post(
             "/api/v1/runs",
             json={
@@ -174,7 +196,7 @@ def test_run_and_telemetry_survive_application_restart_and_replay_deterministica
         run_id = created.json()["run_id"]
         incident = client.post(
             "/api/v1/incidents",
-            headers={"Authorization": "Bearer incident-test-key"},
+            headers={"Authorization": f"Bearer {PERSISTENCE_TOKEN}"},
             json={
                 "simulation_run_id": run_id,
                 "title": "Persisted operator report",
@@ -206,13 +228,13 @@ def test_run_and_telemetry_survive_application_restart_and_replay_deterministica
     first_db.dispose()
 
     second_app, second_db, _, _ = build_test_app(database_url, tmp_path / "managed-results")
-    with TestClient(second_app) as client:
+    with TestClient(second_app, headers={"Authorization": f"Bearer {PERSISTENCE_TOKEN}"}) as client:
         status = client.get(f"/api/v1/runs/{run_id}")
         assert status.status_code == 200
         assert status.json()["current_tick"] == 7
         persisted_incident = client.get(
             f"/api/v1/incidents/{incident_id}",
-            headers={"Authorization": "Bearer incident-test-key"},
+            headers={"Authorization": f"Bearer {PERSISTENCE_TOKEN}"},
         )
         assert persisted_incident.status_code == 200
         assert persisted_incident.json()["title"] == "Persisted operator report"
@@ -220,7 +242,7 @@ def test_run_and_telemetry_survive_application_restart_and_replay_deterministica
         assert after_restart == before_restart
         assert "scenario_ground_truth" not in client.get(
             f"/api/v1/runs/{run_id}/exports/json",
-            headers={"Authorization": "Bearer export-test-key"},
+            headers={"Authorization": f"Bearer {PERSISTENCE_TOKEN}"},
         ).text
         continued = client.post(f"/api/v1/runs/{run_id}/advance", json={"ticks": 1})
         assert continued.status_code == 200

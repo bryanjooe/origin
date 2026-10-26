@@ -25,6 +25,7 @@ MAX_ADVANCE_TICKS = 1_000
 MAX_RUN_TICKS = 10_000
 MAX_PAGE_TICKS = 2_000
 MAX_EXPORT_TICKS = 10_000
+MAX_EXPORT_BYTES = 16 * 1024 * 1024
 
 
 def utc_now() -> datetime:
@@ -43,6 +44,7 @@ class SimulationRun:
     simulator: MicrogridSimulator
     created_at: datetime
     updated_at: datetime
+    owner_id: str | None = None
     last_command_no: int = 0
     persisted_tick: int = 0
     commands: list[dict] = field(default_factory=list)
@@ -77,6 +79,7 @@ class SimulationService:
                 simulator=simulator,
                 created_at=record["created_at"],
                 updated_at=record["updated_at"],
+                owner_id=record.get("owner_id"),
                 last_command_no=record["last_command_no"],
                 persisted_tick=record["current_tick"],
                 commands=commands,
@@ -114,7 +117,9 @@ class SimulationService:
             raise RuntimeError("Stored simulation position is inconsistent")
         return simulator
 
-    def create_run(self, config: GridConfig, seed: int, fault=None) -> SimulationRun:
+    def create_run(
+        self, config: GridConfig, seed: int, fault=None, *, owner_id: str | None = None
+    ) -> SimulationRun:
         simulator = MicrogridSimulator(config=config, seed=seed)
         if fault is not None:
             simulator.inject(
@@ -125,13 +130,14 @@ class SimulationService:
                 start_tick=fault.start_tick,
             )
         now = utc_now()
-        run = SimulationRun(str(uuid4()), simulator, now, now)
+        run = SimulationRun(str(uuid4()), simulator, now, now, owner_id=owner_id)
         topology_path = f"runs/{run.run_id}/topology.json"
         topology_artifact = self.artifact_store.write_json(topology_path, topology_data())
         fault_payload = self._fault_payload(fault) if fault is not None else None
         try:
             self.repository.create_run(
                 run_id=run.run_id,
+                owner_id=owner_id,
                 config=simulator.settings()["config"],
                 seed=seed,
                 created_at=now,
@@ -205,6 +211,7 @@ class SimulationService:
             run.error_code = record["error_code"]
             run.error_message = record["error_message"]
             run.updated_at = record["updated_at"]
+            run.owner_id = record.get("owner_id")
             return True
         except Exception:
             try:
@@ -222,15 +229,15 @@ class SimulationService:
                 run.error_message = "Simulation state could not be restored."
                 return False
 
-    def _get_run(self, run_id: str) -> SimulationRun:
+    def _get_run(self, run_id: str, owner_id: str | None = None) -> SimulationRun:
         with self._registry_lock:
             run = self._runs.get(run_id)
-        if run is None:
+        if run is None or (owner_id is not None and run.owner_id != owner_id):
             raise APIError(404, "run_not_found", "Simulation run was not found.")
         return run
 
-    def status(self, run_id: str) -> dict:
-        run = self._get_run(run_id)
+    def status(self, run_id: str, *, owner_id: str | None = None) -> dict:
+        run = self._get_run(run_id, owner_id)
         with run.lock:
             simulator = run.simulator
             return {
@@ -249,8 +256,8 @@ class SimulationService:
                 ),
             }
 
-    def advance(self, run_id: str, ticks: int) -> dict:
-        run = self._get_run(run_id)
+    def advance(self, run_id: str, ticks: int, *, owner_id: str | None = None) -> dict:
+        run = self._get_run(run_id, owner_id)
         with run.lock:
             current_tick = run.simulator.tick
             if run.status == "failed":
@@ -319,8 +326,8 @@ class SimulationService:
                 "current_tick": run.simulator.tick,
             }
 
-    def schedule_fault(self, run_id: str, fault) -> dict:
-        run = self._get_run(run_id)
+    def schedule_fault(self, run_id: str, fault, *, owner_id: str | None = None) -> dict:
+        run = self._get_run(run_id, owner_id)
         with run.lock:
             if fault.start_tick < run.simulator.tick:
                 raise APIError(
@@ -370,8 +377,8 @@ class SimulationService:
             run.updated_at = updated_at
             return {"run_id": run.run_id, "scheduled": True, "start_tick": fault.start_tick}
 
-    def correct(self, run_id: str) -> dict:
-        run = self._get_run(run_id)
+    def correct(self, run_id: str, *, owner_id: str | None = None) -> dict:
+        run = self._get_run(run_id, owner_id)
         with run.lock:
             run.simulator.correct()
             sequence = run.last_command_no + 1
@@ -398,8 +405,16 @@ class SimulationService:
             run.updated_at = updated_at
             return {"run_id": run.run_id, "corrected": True, "current_tick": run.simulator.tick}
 
-    def _read_range(self, run_id: str, start_tick: int, end_tick: int | None, cap: int):
-        run = self._get_run(run_id)
+    def _read_range(
+        self,
+        run_id: str,
+        start_tick: int,
+        end_tick: int | None,
+        cap: int,
+        *,
+        owner_id: str | None = None,
+    ):
+        run = self._get_run(run_id, owner_id)
         with run.lock:
             current_tick = run.simulator.tick
             resolved_end = current_tick if end_tick is None else end_tick
@@ -423,12 +438,20 @@ class SimulationService:
             )
             return run, resolved_end, rows
 
-    def telemetry(self, run_id: str, start_tick: int, end_tick: int | None) -> dict:
-        run, resolved_end, rows = self._read_range(run_id, start_tick, end_tick, MAX_PAGE_TICKS)
+    def telemetry(
+        self, run_id: str, start_tick: int, end_tick: int | None, *, owner_id: str | None = None
+    ) -> dict:
+        run, resolved_end, rows = self._read_range(
+            run_id, start_tick, end_tick, MAX_PAGE_TICKS, owner_id=owner_id
+        )
         return {"run_id": run.run_id, "start_tick": start_tick, "end_tick": resolved_end, "rows": rows}
 
-    def controller_logs(self, run_id: str, start_tick: int, end_tick: int | None) -> dict:
-        run, resolved_end, rows = self._read_range(run_id, start_tick, end_tick, MAX_PAGE_TICKS)
+    def controller_logs(
+        self, run_id: str, start_tick: int, end_tick: int | None, *, owner_id: str | None = None
+    ) -> dict:
+        run, resolved_end, rows = self._read_range(
+            run_id, start_tick, end_tick, MAX_PAGE_TICKS, owner_id=owner_id
+        )
         keys = (
             "tick", "elapsed_seconds", "controller_inputs", "controller_rule",
             "controller_command_kw", "nominal_command_kw", "applied_reserve_soc_pct",
@@ -440,11 +463,11 @@ class SimulationService:
         return {"run_id": run.run_id, "start_tick": start_tick, "end_tick": resolved_end, "logs": logs}
 
     def analysis_snapshot(
-        self, run_id: str, start_tick: int, end_tick: int | None
+        self, run_id: str, start_tick: int, end_tick: int | None, *, owner_id: str | None = None
     ) -> dict:
         """Freeze an observed-only input window; typed allowlists exclude simulator truth."""
         run, resolved_end, rows = self._read_range(
-            run_id, start_tick, end_tick, MAX_PAGE_TICKS
+            run_id, start_tick, end_tick, MAX_PAGE_TICKS, owner_id=owner_id
         )
         if start_tick >= resolved_end:
             raise APIError(
@@ -471,8 +494,8 @@ class SimulationService:
             "controller_logs": [row.model_dump(mode="json") for row in logs],
         }
 
-    def export_metadata(self, run_id: str) -> dict:
-        run = self._get_run(run_id)
+    def export_metadata(self, run_id: str, *, owner_id: str | None = None) -> dict:
+        run = self._get_run(run_id, owner_id)
         with run.lock:
             count = run.simulator.tick
             exports = []
@@ -496,20 +519,31 @@ class SimulationService:
                 "exports": exports,
             }
 
-    def result_metadata(self, run_id: str) -> dict:
-        run = self._get_run(run_id)
+    def result_metadata(self, run_id: str, *, owner_id: str | None = None) -> dict:
+        run = self._get_run(run_id, owner_id)
         with run.lock:
             return {
                 "run_id": run.run_id,
                 "artifacts": self.repository.result_metadata(run_id),
             }
 
-    def export(self, run_id: str, format_name: str, start_tick: int, end_tick: int | None) -> tuple[str, str]:
+    def export(
+        self,
+        run_id: str,
+        format_name: str,
+        start_tick: int,
+        end_tick: int | None,
+        *,
+        owner_id: str | None = None,
+    ) -> tuple[str, str]:
         run, resolved_end, rows = self._read_range(
-            run_id, start_tick, end_tick, MAX_EXPORT_TICKS
+            run_id, start_tick, end_tick, MAX_EXPORT_TICKS, owner_id=owner_id
         )
         if format_name == "json":
-            return json.dumps(rows, indent=2), "application/json"
+            content = json.dumps(rows, indent=2)
+            if len(content.encode("utf-8")) > MAX_EXPORT_BYTES:
+                raise APIError(413, "export_too_large", "Requested export exceeds the download limit.")
+            return content, "application/json"
         if format_name != "csv":
             raise APIError(404, "export_format_not_found", "Export format was not found.")
         stream = StringIO(newline="")
@@ -521,7 +555,10 @@ class SimulationService:
                 **row,
                 "controller_inputs": json.dumps(row["controller_inputs"]),
             })
-        return stream.getvalue(), "text/csv; charset=utf-8"
+        content = stream.getvalue()
+        if len(content.encode("utf-8")) > MAX_EXPORT_BYTES:
+            raise APIError(413, "export_too_large", "Requested export exceeds the download limit.")
+        return content, "text/csv; charset=utf-8"
 
 
 def fault_catalog() -> dict:

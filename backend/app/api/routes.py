@@ -1,19 +1,19 @@
 """Versioned API v1 routes."""
 from __future__ import annotations
 
-import hmac
 from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Request
 from fastapi.responses import Response
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.fault_injection import Fault
 from app.simulator import GridConfig
 
-from .config import APISettings
 from .errors import APIError
 from .incident_service import IncidentService
+from .security import authenticated_principal
 from .schemas import (
     AdvanceInput,
     AdvanceResponse,
@@ -54,23 +54,28 @@ from .service import (
 router = APIRouter(prefix="/api/v1")
 
 
-def get_service(request: Request) -> SimulationService:
+def get_service(
+    request: Request,
+    _principal_id: str = Depends(authenticated_principal),
+) -> SimulationService:
     if not getattr(request.app.state, "persistence_ready", False):
         raise APIError(503, "not_ready", "API services are not ready.")
     return request.app.state.service
 
 
-def get_settings(request: Request) -> APISettings:
-    return request.app.state.settings
-
-
-def get_incident_service(request: Request) -> IncidentService:
+def get_incident_service(
+    request: Request,
+    _principal_id: str = Depends(authenticated_principal),
+) -> IncidentService:
     if not getattr(request.app.state, "persistence_ready", False):
         raise APIError(503, "not_ready", "API services are not ready.")
     return request.app.state.incident_service
 
 
-def get_analysis_coordinator(request: Request):
+def get_analysis_coordinator(
+    request: Request,
+    _principal_id: str = Depends(authenticated_principal),
+):
     if not getattr(request.app.state, "persistence_ready", False):
         raise APIError(503, "not_ready", "API services are not ready.")
     return request.app.state.analysis_coordinator
@@ -89,6 +94,10 @@ def liveness() -> dict:
 def readiness(request: Request) -> dict:
     if not getattr(request.app.state, "persistence_ready", False):
         raise APIError(503, "not_ready", "API services are not ready.")
+    try:
+        request.app.state.repository.check_ready()
+    except SQLAlchemyError:
+        raise APIError(503, "not_ready", "Persistent storage is unavailable.") from None
     return {"status": "ready"}
 
 
@@ -100,13 +109,14 @@ def list_fault_types() -> dict:
 @router.post("/runs", response_model=RunResponse, status_code=201, tags=["runs"])
 def create_run(
     payload: RunCreateInput,
+    principal_id: str = Depends(authenticated_principal),
     service: SimulationService = Depends(get_service),
 ) -> dict:
     config = GridConfig(**payload.config.model_dump())
     fault = None
     if payload.fault is not None:
         fault = Fault(**payload.fault.model_dump())
-    run = service.create_run(config, payload.seed, fault)
+    run = service.create_run(config, payload.seed, fault, owner_id=principal_id)
     with run.lock:
         return {
             "run_id": run.run_id,
@@ -124,9 +134,10 @@ def create_run(
 @router.get("/runs/{run_id}", response_model=RunStatusResponse, tags=["runs"])
 def get_run_status(
     run_id: UUID,
+    principal_id: str = Depends(authenticated_principal),
     service: SimulationService = Depends(get_service),
 ) -> dict:
-    return service.status(_uuid(run_id))
+    return service.status(_uuid(run_id), owner_id=principal_id)
 
 
 @router.post(
@@ -139,6 +150,7 @@ def submit_analysis(
     run_id: UUID,
     payload: AnalysisSubmissionInput,
     idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=128),
+    principal_id: str = Depends(authenticated_principal),
     coordinator=Depends(get_analysis_coordinator),
 ) -> dict:
     return coordinator.submit_run_analysis(
@@ -146,6 +158,7 @@ def submit_analysis(
         start_tick=payload.start_tick,
         end_tick=payload.end_tick,
         idempotency_key=idempotency_key,
+        owner_id=principal_id,
     )
 
 
@@ -157,10 +170,11 @@ def submit_analysis(
 def get_analysis(
     analysis_id: UUID,
     request: Request,
+    principal_id: str = Depends(authenticated_principal),
 ) -> dict:
     if not getattr(request.app.state, "persistence_ready", False):
         raise APIError(503, "not_ready", "API services are not ready.")
-    record = request.app.state.analysis_service.get(str(analysis_id))
+    record = request.app.state.analysis_service.get(str(analysis_id), owner_id=principal_id)
     return {
         "analysis_id": record["id"],
         "simulation_run_id": record["simulation_run_id"],
@@ -188,11 +202,12 @@ def get_analysis(
 def advance_run(
     run_id: UUID,
     payload: AdvanceInput,
+    principal_id: str = Depends(authenticated_principal),
     service: SimulationService = Depends(get_service),
 ) -> dict:
     if payload.ticks > MAX_ADVANCE_TICKS:
         raise APIError(422, "invalid_tick_count", f"ticks must be at most {MAX_ADVANCE_TICKS}.")
-    return service.advance(_uuid(run_id), payload.ticks)
+    return service.advance(_uuid(run_id), payload.ticks, owner_id=principal_id)
 
 
 @router.post(
@@ -204,9 +219,10 @@ def advance_run(
 def schedule_fault(
     run_id: UUID,
     payload: FaultScheduleInput,
+    principal_id: str = Depends(authenticated_principal),
     service: SimulationService = Depends(get_service),
 ) -> dict:
-    return service.schedule_fault(_uuid(run_id), Fault(**payload.model_dump()))
+    return service.schedule_fault(_uuid(run_id), Fault(**payload.model_dump()), owner_id=principal_id)
 
 
 @router.post(
@@ -216,9 +232,10 @@ def schedule_fault(
 )
 def correct_run(
     run_id: UUID,
+    principal_id: str = Depends(authenticated_principal),
     service: SimulationService = Depends(get_service),
 ) -> dict:
-    return service.correct(_uuid(run_id))
+    return service.correct(_uuid(run_id), owner_id=principal_id)
 
 
 @router.get(
@@ -230,9 +247,10 @@ def get_telemetry(
     run_id: UUID,
     start_tick: int = Query(default=0, ge=0),
     end_tick: int | None = Query(default=None, ge=0),
+    principal_id: str = Depends(authenticated_principal),
     service: SimulationService = Depends(get_service),
 ) -> dict:
-    return service.telemetry(_uuid(run_id), start_tick, end_tick)
+    return service.telemetry(_uuid(run_id), start_tick, end_tick, owner_id=principal_id)
 
 
 @router.get(
@@ -244,9 +262,10 @@ def get_controller_logs(
     run_id: UUID,
     start_tick: int = Query(default=0, ge=0),
     end_tick: int | None = Query(default=None, ge=0),
+    principal_id: str = Depends(authenticated_principal),
     service: SimulationService = Depends(get_service),
 ) -> dict:
-    return service.controller_logs(_uuid(run_id), start_tick, end_tick)
+    return service.controller_logs(_uuid(run_id), start_tick, end_tick, owner_id=principal_id)
 
 
 @router.get("/topology", response_model=TopologyResponse, tags=["topology"])
@@ -270,9 +289,10 @@ def get_downstream(component: str) -> dict:
 )
 def get_export_metadata(
     run_id: UUID,
+    principal_id: str = Depends(authenticated_principal),
     service: SimulationService = Depends(get_service),
 ) -> dict:
-    return service.export_metadata(_uuid(run_id))
+    return service.export_metadata(_uuid(run_id), owner_id=principal_id)
 
 
 @router.get(
@@ -282,78 +302,39 @@ def get_export_metadata(
 )
 def get_result_metadata(
     run_id: UUID,
+    principal_id: str = Depends(authenticated_principal),
     service: SimulationService = Depends(get_service),
 ) -> dict:
-    return service.result_metadata(_uuid(run_id))
-
-
-def authorize_export(
-    authorization: str | None = Header(default=None),
-    settings: APISettings = Depends(get_settings),
-) -> None:
-    expected = settings.export_api_key
-    if expected is None:
-        raise APIError(
-            503,
-            "export_authorization_unavailable",
-            "Export downloads are not configured on this server.",
-        )
-    scheme, _, supplied = (authorization or "").partition(" ")
-    if (
-        scheme.lower() != "bearer"
-        or not supplied
-        or not hmac.compare_digest(supplied.encode("utf-8"), expected.encode("utf-8"))
-    ):
-        raise APIError(401, "unauthorized", "Valid bearer authorization is required.")
-
-
-def authorize_incidents(
-    authorization: str | None = Header(default=None),
-    settings: APISettings = Depends(get_settings),
-) -> None:
-    expected = settings.incident_api_key
-    if expected is None:
-        raise APIError(
-            503,
-            "incident_authorization_unavailable",
-            "Incident access is not configured on this server.",
-        )
-    scheme, _, supplied = (authorization or "").partition(" ")
-    if (
-        scheme.lower() != "bearer"
-        or not supplied
-        or not hmac.compare_digest(supplied.encode("utf-8"), expected.encode("utf-8"))
-    ):
-        raise APIError(401, "unauthorized", "Valid bearer authorization is required.")
+    return service.result_metadata(_uuid(run_id), owner_id=principal_id)
 
 
 @router.post(
     "/incidents",
     response_model=IncidentResponse,
     status_code=201,
-    dependencies=[Depends(authorize_incidents)],
     tags=["incidents"],
 )
 def create_incident(
     payload: IncidentCreateInput,
+    principal_id: str = Depends(authenticated_principal),
     service: IncidentService = Depends(get_incident_service),
 ) -> dict:
-    return service.create(payload.model_dump(mode="json"))
+    return service.create(payload.model_dump(mode="json"), owner_id=principal_id)
 
 
 @router.get(
     "/incidents",
     response_model=IncidentListResponse,
-    dependencies=[Depends(authorize_incidents)],
     tags=["incidents"],
 )
 def list_incidents(
-    page: int = Query(default=1, ge=1),
+    page: int = Query(default=1, ge=1, le=10000),
     page_size: int = Query(default=50, ge=1, le=100),
     status: IncidentStatus | None = None,
     category: str | None = Query(default=None, min_length=1, max_length=100),
     affected_component: str | None = Query(default=None, min_length=1, max_length=100),
     simulation_run_id: UUID | None = None,
+    principal_id: str = Depends(authenticated_principal),
     service: IncidentService = Depends(get_incident_service),
 ) -> dict:
     return service.list(
@@ -363,39 +344,39 @@ def list_incidents(
         category=category,
         affected_component=affected_component,
         simulation_run_id=str(simulation_run_id) if simulation_run_id else None,
+        owner_id=principal_id,
     )
 
 
 @router.get(
     "/incidents/{incident_id}",
     response_model=IncidentResponse,
-    dependencies=[Depends(authorize_incidents)],
     tags=["incidents"],
 )
 def get_incident(
     incident_id: UUID,
+    principal_id: str = Depends(authenticated_principal),
     service: IncidentService = Depends(get_incident_service),
 ) -> dict:
-    return service.get(str(incident_id))
+    return service.get(str(incident_id), owner_id=principal_id)
 
 
 @router.patch(
     "/incidents/{incident_id}",
     response_model=IncidentResponse,
-    dependencies=[Depends(authorize_incidents)],
     tags=["incidents"],
 )
 def update_incident(
     incident_id: UUID,
     payload: IncidentUpdateInput,
+    principal_id: str = Depends(authenticated_principal),
     service: IncidentService = Depends(get_incident_service),
 ) -> dict:
-    return service.update(str(incident_id), payload.model_dump(exclude_unset=True))
+    return service.update(str(incident_id), payload.model_dump(exclude_unset=True), owner_id=principal_id)
 
 
 @router.get(
     "/runs/{run_id}/exports/{format_name}",
-    dependencies=[Depends(authorize_export)],
     responses={
         200: {"content": {"application/json": {}, "text/csv": {}}},
         401: {"description": "Authorization required."},
@@ -407,10 +388,11 @@ def download_export(
     format_name: Literal["csv", "json"],
     start_tick: int = Query(default=0, ge=0),
     end_tick: int | None = Query(default=None, ge=0),
+    principal_id: str = Depends(authenticated_principal),
     service: SimulationService = Depends(get_service),
 ) -> Response:
     content, media_type = service.export(
-        _uuid(run_id), format_name, start_tick, end_tick
+        _uuid(run_id), format_name, start_tick, end_tick, owner_id=principal_id
     )
     return Response(
         content=content,

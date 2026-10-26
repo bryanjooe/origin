@@ -12,8 +12,9 @@ class IncidentService:
         self.repository = repository
         self._components = frozenset(build_topology().nodes)
 
-    def create(self, values: dict) -> dict:
+    def create(self, values: dict, *, owner_id: str) -> dict:
         self._validate_component(values["affected_component"])
+        values = {**values, "owner_id": owner_id}
         incident = self.repository.create_incident(values)
         if incident is None:
             raise APIError(404, "run_not_found", "Simulation run was not found.")
@@ -28,10 +29,12 @@ class IncidentService:
         category: str | None,
         affected_component: str | None,
         simulation_run_id: str | None,
+        owner_id: str,
     ) -> dict:
         if affected_component is not None:
             self._validate_component(affected_component)
         items, total = self.repository.list_incidents(
+            owner_id=owner_id,
             page=page,
             page_size=page_size,
             status=status,
@@ -41,16 +44,16 @@ class IncidentService:
         )
         return {"items": items, "page": page, "page_size": page_size, "total": total}
 
-    def get(self, incident_id: str) -> dict:
-        incident = self.repository.get_incident(incident_id)
+    def get(self, incident_id: str, *, owner_id: str) -> dict:
+        incident = self.repository.get_incident(incident_id, owner_id=owner_id)
         if incident is None:
             raise APIError(404, "incident_not_found", "Incident was not found.")
         return incident
 
-    def update(self, incident_id: str, changes: dict) -> dict:
+    def update(self, incident_id: str, changes: dict, *, owner_id: str) -> dict:
         if "affected_component" in changes:
             self._validate_component(changes["affected_component"])
-        incident = self.repository.update_incident(incident_id, changes)
+        incident = self.repository.update_incident(incident_id, changes, owner_id=owner_id)
         if incident is None:
             raise APIError(404, "incident_not_found", "Incident was not found.")
         return incident

@@ -18,12 +18,14 @@ class AIAnalysisService:
         *,
         simulation_run_id: str | None = None,
         incident_id: str | None = None,
+        owner_id: str | None = None,
     ) -> str:
         if simulation_run_id is None and incident_id is None:
             raise APIError(422, "analysis_context_required", "An analysis must reference a run or incident.")
         analysis_id = str(uuid4())
         self.repository.create_analysis(
             analysis_id=analysis_id,
+            owner_id=owner_id,
             run_id=simulation_run_id,
             incident_id=incident_id,
             status="pending",
@@ -39,6 +41,7 @@ class AIAnalysisService:
         *,
         simulation_run_id: str | None = None,
         incident_id: str | None = None,
+        owner_id: str | None = None,
         idempotency_key: str,
         input_sha256: str,
     ) -> tuple[str, bool]:
@@ -48,6 +51,7 @@ class AIAnalysisService:
         try:
             return self.repository.create_analysis(
                 analysis_id=analysis_id,
+                owner_id=owner_id,
                 run_id=simulation_run_id,
                 incident_id=incident_id,
                 status="pending",
@@ -112,8 +116,8 @@ class AIAnalysisService:
             "validated_output": None,
         })
 
-    def get(self, analysis_id: str) -> dict:
-        result = self.repository.get_analysis(analysis_id)
+    def get(self, analysis_id: str, *, owner_id: str | None = None) -> dict:
+        result = self.repository.get_analysis(analysis_id, owner_id=owner_id)
         if result is None:
             raise APIError(404, "analysis_not_found", "Analysis record was not found.")
         return result

@@ -92,8 +92,11 @@ def install_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(Exception)
     async def internal_error_handler(request: Request, exc: Exception) -> JSONResponse:
         request_id = getattr(request.state, "request_id", "unknown")
-        logging.getLogger("tracex.api").exception(
-            "Unhandled API error (request_id=%s)", request_id
+        # Do not log exception text, request bodies, URLs, or credentials.
+        logging.getLogger("tracex.api").error(
+            "Unhandled API error (request_id=%s, exception_type=%s)",
+            request_id,
+            type(exc).__name__,
         )
         return JSONResponse(
             status_code=500,

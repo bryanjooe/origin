@@ -17,10 +17,13 @@ from app.persistence.database import Database
 from app.persistence.models import Base
 from app.persistence.repository import SQLAlchemyRepository
 
+TEST_TOKEN = "test-user-token-0123456789abcdef0123456789abcdef"
+
 
 class ManagedTestClient(TestClient):
     def __init__(self, app, database, temp_directory, *, raise_server_exceptions=True):
-        super().__init__(app, raise_server_exceptions=raise_server_exceptions)
+        super().__init__(app, raise_server_exceptions=raise_server_exceptions,
+                         headers={"Authorization": f"Bearer {TEST_TOKEN}"})
         self._database = database
         self._temp_directory = temp_directory
 
@@ -33,7 +36,7 @@ class ManagedTestClient(TestClient):
 
 
 def make_client(
-    *, export_api_key="test-secret", incident_api_key="incident-secret", origins=(),
+    *, export_api_key=TEST_TOKEN, incident_api_key="incident-secret", origins=(), api_tokens=None,
     raise_server_exceptions=True, analysis_provider=None,
 ):
     temp_directory = tempfile.TemporaryDirectory(prefix="tracex-api-test-")
@@ -43,11 +46,17 @@ def make_client(
     repository = SQLAlchemyRepository(database.session_factory)
     artifact_store = FileArtifactStore(root / "artifacts")
     service = SimulationService(repository, artifact_store)
+    tokens = api_tokens if api_tokens is not None else {
+        token: "test-user" for token in (
+            *((TEST_TOKEN,) if export_api_key is not None or incident_api_key is not None else ()),
+            export_api_key,
+            incident_api_key,
+        ) if token
+    }
     app = create_app(
         settings=APISettings(
             cors_origins=tuple(origins),
-            export_api_key=export_api_key,
-            incident_api_key=incident_api_key,
+            api_tokens=tokens,
             database_url="sqlite+pysqlite:///:memory:",
             data_dir=str(root / "artifacts"),
         ),
@@ -212,7 +221,7 @@ def test_authorized_exports_metadata_and_no_credentials_or_truth():
         assert "long-secret-value" not in metadata.text
         assert "ground_truth" not in metadata.text
 
-        denied = client.get(f"/api/v1/runs/{run_id}/exports/json")
+        denied = client.get(f"/api/v1/runs/{run_id}/exports/json", headers={"Authorization": "Bearer invalid"})
         assert denied.status_code == 401
         assert denied.json()["error"]["code"] == "unauthorized"
         invalid = client.get(
@@ -235,15 +244,83 @@ def test_authorized_exports_metadata_and_no_credentials_or_truth():
         ).text)[0]["tick"] == 0
 
 
-def test_export_download_unavailable_without_server_key():
-    with make_client(export_api_key=None) as client:
-        run_id = create_run(client)["run_id"]
-        response = client.get(
-            f"/api/v1/runs/{run_id}/exports/json",
-            headers={"Authorization": "Bearer anything"},
-        )
+def test_private_api_unavailable_without_configured_principals():
+    with make_client(export_api_key=None, incident_api_key=None) as client:
+        response = client.get("/api/v1/incidents")
         assert response.status_code == 503
-        assert response.json()["error"]["code"] == "export_authorization_unavailable"
+        assert response.json()["error"]["code"] == "authentication_unavailable"
+
+
+def test_private_resources_are_isolated_by_authenticated_principal():
+    bob_token = "bob-user-token-0123456789abcdef0123456789abcdef"
+    with make_client(api_tokens={TEST_TOKEN: "alice", bob_token: "bob"}) as client:
+        run_id = create_run(client)["run_id"]
+        incident = client.post("/api/v1/incidents", json={
+            "title": "Alice incident", "affected_component": "battery", "category": "observation",
+            "simulation_run_id": run_id,
+        }).json()
+        assert client.post(f"/api/v1/runs/{run_id}/advance", json={"ticks": 1}).status_code == 200
+        analysis_response = client.post(
+            f"/api/v1/runs/{run_id}/analyses",
+            headers={"Idempotency-Key": "alice-analysis-key-001"},
+            json={"start_tick": 0, "end_tick": 1},
+        )
+        assert analysis_response.status_code == 202, analysis_response.text
+        bob = {"Authorization": f"Bearer {bob_token}"}
+        assert client.get(f"/api/v1/runs/{run_id}", headers=bob).status_code == 404
+        assert client.get(f"/api/v1/runs/{run_id}/telemetry", headers=bob).status_code == 404
+        assert client.get(f"/api/v1/runs/{run_id}/results", headers=bob).status_code == 404
+        assert client.get(f"/api/v1/runs/{run_id}/exports/json", headers=bob).status_code == 404
+        assert client.get(f"/api/v1/incidents/{incident['id']}", headers=bob).status_code == 404
+        assert client.get(f"/api/v1/analyses/{analysis_response.json()['analysis_id']}",
+                          headers=bob).status_code == 404
+        assert client.get("/api/v1/incidents", headers=bob).json()["total"] == 0
+        assert client.patch(f"/api/v1/incidents/{incident['id']}", headers=bob,
+                            json={"title": "hijack"}).status_code == 404
+
+
+def test_auth_body_limit_and_live_readiness_failures():
+    with make_client() as client:
+        unauthenticated = client.get("/api/v1/incidents", headers={"Authorization": "Bearer wrong"})
+        assert unauthenticated.status_code == 401
+        assert client.get("/api/v1/health/live").status_code == 200
+        too_large = client.post("/api/v1/incidents", content=b" " * (128 * 1024 + 1),
+                                headers={"Content-Type": "application/json"})
+        assert too_large.status_code == 413
+        assert too_large.json()["error"]["code"] == "request_too_large"
+        repository = client.app.state.repository
+        original = repository.check_ready
+
+        def disconnected():
+            from sqlalchemy.exc import OperationalError
+            raise OperationalError("SELECT 1", {}, RuntimeError("private database detail"))
+
+        repository.check_ready = disconnected
+        response = client.get("/api/v1/health/ready")
+        assert response.status_code == 503
+        assert "private database detail" not in response.text
+        repository.check_ready = original
+
+
+def test_private_rate_limit_returns_structured_429():
+    with make_client() as client:
+        limiter = client.app.state.rate_limiter
+        for _ in range(120):
+            limiter.check("test-user", "GET", "/api/v1/incidents")
+        response = client.get("/api/v1/incidents")
+        assert response.status_code == 429
+        assert response.json()["error"]["code"] == "rate_limited"
+
+
+def test_download_size_limit_is_enforced(monkeypatch):
+    from app.api import service as service_module
+
+    monkeypatch.setattr(service_module, "MAX_EXPORT_BYTES", 1)
+    with make_client() as client:
+        run_id = create_run(client)["run_id"]
+        response = client.get(f"/api/v1/runs/{run_id}/exports/json")
+        assert response.status_code == 413
+        assert response.json()["error"]["code"] == "export_too_large"
 
 
 def test_incident_crud_filters_pagination_and_ground_truth_rejection():
@@ -321,10 +398,10 @@ def test_incident_crud_filters_pagination_and_ground_truth_rejection():
 
 
 def test_incident_api_requires_configured_authorization():
-    with make_client(incident_api_key=None) as client:
+    with make_client(export_api_key=None, incident_api_key=None) as client:
         response = client.get("/api/v1/incidents")
         assert response.status_code == 503
-        assert response.json()["error"]["code"] == "incident_authorization_unavailable"
+        assert response.json()["error"]["code"] == "authentication_unavailable"
 
 
 def test_concurrent_advance_requests_serialize_same_simulator():

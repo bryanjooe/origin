@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import tempfile
+import hmac
 
 
 @dataclass(frozen=True)
@@ -17,6 +18,8 @@ class Artifact:
 
 
 class FileArtifactStore:
+    MAX_CHUNK_BYTES = 32 * 1024 * 1024
+
     def __init__(self, root: str | Path):
         self.root = Path(root).expanduser().resolve()
 
@@ -59,11 +62,20 @@ class FileArtifactStore:
         rows = []
         for chunk in chunks:
             path = self._resolve(chunk["relative_path"])
-            with path.open("r", encoding="utf-8") as stream:
-                for line in stream:
-                    row = json.loads(line)
-                    if start_tick <= row["tick"] < end_tick:
-                        rows.append(row)
+            try:
+                with path.open("rb") as stream:
+                    content = stream.read(self.MAX_CHUNK_BYTES + 1)
+                if len(content) > self.MAX_CHUNK_BYTES or len(content) != chunk["size_bytes"]:
+                    raise ValueError("Artifact size is invalid")
+            except OSError as exc:
+                raise ValueError("Artifact is unavailable") from exc
+            digest = hashlib.sha256(content).hexdigest()
+            if not hmac.compare_digest(digest, chunk["sha256"]):
+                raise ValueError("Artifact integrity check failed")
+            for line in content.splitlines():
+                row = json.loads(line)
+                if start_tick <= row["tick"] < end_tick:
+                    rows.append(row)
         rows.sort(key=lambda row: row["tick"])
         return rows
 

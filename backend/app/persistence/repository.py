@@ -44,6 +44,7 @@ class SQLAlchemyRepository:
         self,
         *,
         run_id: str,
+        owner_id: str | None = None,
         config: dict,
         seed: int,
         created_at: datetime,
@@ -54,6 +55,7 @@ class SQLAlchemyRepository:
         with self.sessions.begin() as session:
             run = SimulationRunRecord(
                 id=run_id,
+                owner_id=owner_id,
                 config=config,
                 seed=str(seed),
                 status="ready",
@@ -296,23 +298,28 @@ class SQLAlchemyRepository:
 
     def create_incident(self, values: dict) -> dict | None:
         with self.sessions.begin() as session:
-            if values.get("simulation_run_id") and session.get(
-                SimulationRunRecord, values["simulation_run_id"]
-            ) is None:
-                return None
+            simulation_run_id = values.get("simulation_run_id")
+            if simulation_run_id:
+                run = session.get(SimulationRunRecord, simulation_run_id)
+                if run is None or run.owner_id != values.get("owner_id"):
+                    return None
             record = IncidentRecord(id=str(uuid4()), **values)
             session.add(record)
             session.flush()
             return self._incident_dict(record)
 
-    def get_incident(self, incident_id: str) -> dict | None:
+    def get_incident(self, incident_id: str, *, owner_id: str) -> dict | None:
         with self.sessions() as session:
-            record = session.get(IncidentRecord, incident_id)
+            record = session.scalar(select(IncidentRecord).where(
+                IncidentRecord.id == incident_id,
+                IncidentRecord.owner_id == owner_id,
+            ))
             return self._incident_dict(record) if record else None
 
     def list_incidents(
         self,
         *,
+        owner_id: str,
         page: int,
         page_size: int,
         status: str | None = None,
@@ -323,7 +330,7 @@ class SQLAlchemyRepository:
         with self.sessions() as session:
             statement = select(IncidentRecord)
             count_statement = select(func.count()).select_from(IncidentRecord)
-            filters = []
+            filters = [IncidentRecord.owner_id == owner_id]
             if status is not None:
                 filters.append(IncidentRecord.investigation_status == status)
             if category is not None:
@@ -343,9 +350,14 @@ class SQLAlchemyRepository:
             ).all()
             return [self._incident_dict(record) for record in records], total
 
-    def update_incident(self, incident_id: str, changes: dict) -> dict | None:
+    def update_incident(
+        self, incident_id: str, changes: dict, *, owner_id: str
+    ) -> dict | None:
         with self.sessions.begin() as session:
-            record = session.get(IncidentRecord, incident_id)
+            record = session.scalar(select(IncidentRecord).where(
+                IncidentRecord.id == incident_id,
+                IncidentRecord.owner_id == owner_id,
+            ))
             if record is None:
                 return None
             for key, value in changes.items():
@@ -358,6 +370,7 @@ class SQLAlchemyRepository:
         self,
         *,
         analysis_id: str,
+        owner_id: str | None,
         run_id: str | None,
         incident_id: str | None,
         status: str,
@@ -375,6 +388,7 @@ class SQLAlchemyRepository:
             with self.sessions.begin() as session:
                 record = AIAnalysisRecord(
                     id=analysis_id,
+                    owner_id=owner_id,
                     simulation_run_id=run_id,
                     incident_id=incident_id,
                     status=status,
@@ -396,11 +410,12 @@ class SQLAlchemyRepository:
                 raise
             with self.sessions() as session:
                 existing = session.scalar(select(AIAnalysisRecord).where(
-                    AIAnalysisRecord.idempotency_key == idempotency_key
+                    AIAnalysisRecord.owner_id == owner_id,
+                    AIAnalysisRecord.idempotency_key == idempotency_key,
                 ))
                 if existing is None:
                     raise
-                if existing.input_sha256 != input_sha256:
+                if existing.owner_id != owner_id or existing.input_sha256 != input_sha256:
                     raise AnalysisIdempotencyConflict(
                         "Idempotency key was already used for different analysis input."
                     )
@@ -421,9 +436,12 @@ class SQLAlchemyRepository:
             session.flush()
             return True
 
-    def get_analysis(self, analysis_id: str) -> dict | None:
+    def get_analysis(self, analysis_id: str, *, owner_id: str | None) -> dict | None:
         with self.sessions() as session:
-            record = session.get(AIAnalysisRecord, analysis_id)
+            record = session.scalar(select(AIAnalysisRecord).where(
+                AIAnalysisRecord.id == analysis_id,
+                AIAnalysisRecord.owner_id == owner_id,
+            ))
             if record is None:
                 return None
             return {
@@ -512,6 +530,7 @@ class SQLAlchemyRepository:
     def _run_dict(record: SimulationRunRecord) -> dict:
         return {
             "id": record.id,
+            "owner_id": record.owner_id,
             "config": record.config,
             "seed": int(record.seed),
             "status": record.status,

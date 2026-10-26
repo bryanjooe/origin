@@ -39,9 +39,11 @@ class SimulationRunRecord(Base):
         CheckConstraint("status IN ('ready', 'complete', 'failed')", name="ck_run_status"),
         CheckConstraint("current_tick >= 0 AND current_tick <= 10000", name="ck_run_tick_bounds"),
         Index("ix_simulation_runs_status_created", "status", "created_at"),
+        Index("ix_simulation_runs_owner_created", "owner_id", "created_at"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    owner_id: Mapped[str | None] = mapped_column(String(128))
     config: Mapped[dict] = mapped_column(JSON_VALUE, nullable=False)
     # Text preserves the Python RNG's full supported integer seed range.
     seed: Mapped[str] = mapped_column(Text, nullable=False)
@@ -167,9 +169,11 @@ class IncidentRecord(Base):
         Index("ix_incidents_status_created", "investigation_status", "created_at"),
         Index("ix_incidents_component_category", "affected_component", "category"),
         Index("ix_incidents_run", "simulation_run_id"),
+        Index("ix_incidents_owner_created", "owner_id", "created_at"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    owner_id: Mapped[str | None] = mapped_column(String(128))
     simulation_run_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("simulation_runs.id", ondelete="RESTRICT")
     )
@@ -202,12 +206,14 @@ class AIAnalysisRecord(Base):
             "status != 'completed' OR validated_output IS NOT NULL",
             name="ck_ai_analysis_completed_output",
         ),
-        Index("uq_ai_analysis_idempotency_key", "idempotency_key", unique=True),
+        Index("uq_ai_analysis_owner_idempotency_key", "owner_id", "idempotency_key", unique=True),
         Index("ix_ai_analysis_run_status", "simulation_run_id", "status"),
         Index("ix_ai_analysis_incident_status", "incident_id", "status"),
+        Index("ix_ai_analysis_owner_created", "owner_id", "created_at"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    owner_id: Mapped[str | None] = mapped_column(String(128))
     simulation_run_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("simulation_runs.id", ondelete="RESTRICT")
     )

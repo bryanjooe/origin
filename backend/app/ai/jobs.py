@@ -48,10 +48,13 @@ class AnalysisJobCoordinator:
         start_tick: int,
         end_tick: int | None,
         idempotency_key: str,
+        owner_id: str,
     ) -> dict:
         # The snapshot is a strict telemetry/controller-log allowlist and is captured
         # before the job is queued, so later advances cannot enter its input.
-        snapshot = self.simulation_service.analysis_snapshot(run_id, start_tick, end_tick)
+        snapshot = self.simulation_service.analysis_snapshot(
+            run_id, start_tick, end_tick, owner_id=owner_id
+        )
         request_template = AnalysisInferenceRequest(
             analysis_id="pending",
             simulation_run_id=run_id,
@@ -69,6 +72,7 @@ class AnalysisJobCoordinator:
         ).hexdigest()
         analysis_id, created = self.analysis_service.create_pending_idempotent(
             simulation_run_id=run_id,
+            owner_id=owner_id,
             idempotency_key=idempotency_key,
             input_sha256=fingerprint,
         )
@@ -94,7 +98,7 @@ class AnalysisJobCoordinator:
                     else:
                         self._futures[analysis_id] = future
                         future.add_done_callback(lambda _future, key=analysis_id: self._finished(key))
-        record = self.analysis_service.get(analysis_id)
+        record = self.analysis_service.get(analysis_id, owner_id=owner_id)
         return {
             "analysis_id": analysis_id,
             "status": record["status"],

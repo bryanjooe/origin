@@ -11,13 +11,9 @@ No sustainability attribution or AI performance claims are supported by this pro
 
 ## Verified current state
 
-Repository was inspected at commit `ef217f8` (`Database and API Implementation`) on
-branch `backend`; current changes implement the AI integration contract and adapter.
-Before this turn's changes the worktree contained only the status document and its
-Stage 1 validation correction. The available
-conversation history confirms the preceding repository audit, API implementation,
-and persistence implementation requests. No further numbered prompt was supplied in
-this turn; the next work must be selected by the user's next prompt.
+This security-hardening pass is based on commit `05fee85` (`AI Integration with database`).
+The backend includes the previously implemented API, persistence, and provider contract
+plus the ownership, authentication, limits, and operational fixes described below.
 
 ### Stack and structure
 
@@ -61,7 +57,7 @@ automatically:
 - `TRACEX_ENV`, `TRACEX_CORS_ORIGINS`
 - `TRACEX_DATABASE_URL` (PostgreSQL SQLAlchemy URL)
 - `TRACEX_DATA_DIR`
-- `TRACEX_EXPORT_API_KEY`, `TRACEX_INCIDENT_API_KEY`
+- `TRACEX_API_TOKENS` (JSON map of opaque bearer tokens to stable principal IDs)
 - `TRACEX_AI_SERVICE_URL`, `TRACEX_AI_SERVICE_API_KEY`, `TRACEX_AI_TIMEOUT_SECONDS`,
   `TRACEX_AI_MAX_RETRIES`, `TRACEX_AI_WORKERS`, `TRACEX_AI_QUEUE_SIZE`
 
@@ -84,9 +80,10 @@ Never reset or drop a database to apply migrations.
 
 ## Verification and limitations
 
-- Full suite in the current AI integration turn: **99 passed**, one Starlette/AnyIO
+- Full suite after the security-hardening pass: **104 passed**, one Starlette/AnyIO
   `BlockingPortal` deprecation warning. This includes Stage 1, API, persistence,
-  restart/migration, and mocked AI integration tests. Environment: Python 3.12.14 and
+  restart/migration, mocked AI integration, ownership isolation, request limits,
+  readiness, and artifact path/integrity tests. Environment: Python 3.12 and
   pinned requirements. Provider tests use local `httpx.MockTransport` and test
   fixtures, not a paid endpoint or model evaluation.
 - No live PostgreSQL server was available; PostgreSQL-specific runtime behavior still
@@ -94,7 +91,12 @@ Never reset or drop a database to apply migrations.
 - Simulator locks and restored simulator instances are process-local. The documented
   API deployment is single-worker only until cross-process locking/leases are added.
 - Incident categories and priorities are caller-supplied text; the repository defines
-  no taxonomy or priority scale. Other routes are not tenant-authenticated.
+  no taxonomy or priority scale. Private run, incident, analysis, and result routes
+  are owner-scoped to a configured bearer-token principal. Public routes are health,
+  fault catalog, and topology. Legacy rows created before owner migration stay
+  ownerless and are not exposed through private API routes.
+- Rate limits and body/download size limits are process-local. Multi-worker deployments
+  need shared rate-limit state and distributed run coordination before scaling out.
 - There is no frontend/dashboard, model, anomaly detector, or validated localization
   accuracy measurement.
 - The AI request/response contract is a proposed v1 agreement because no team
@@ -112,6 +114,4 @@ Never reset or drop a database to apply migrations.
 - `docs/api.md`: API endpoints, persistence, migrations, security, and limitations.
 - `docs/ai-integration.md`: AI provider contract, payload schemas, and connection steps.
 
-The next recommended action is to confirm the proposed AI contract with the AI team
-and connect their real local adapter or HTTP service once its interface and deployment
-are available. No model quality or localization accuracy has been measured.
+No model quality or localization accuracy has been measured.
