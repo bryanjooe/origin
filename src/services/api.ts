@@ -8,6 +8,7 @@ import type {
 import type { AttackPayload, AttackScheduleResponse } from '../types/attacks'
 import type { ShadowComparison, ShadowRequest } from '../types/shadowtwin'
 import { componentStatus } from '../utils/componentStatus'
+import type { AgentJob, AgentStatus } from '../types/investigationAgent'
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
 type JsonRecord = Record<string, unknown>
@@ -173,6 +174,10 @@ function mapModelMetrics(rawValue: unknown): ModelMetrics {
 }
 
 export const api = {
+  getAgentStatus: (): Promise<AgentStatus> => data('/api/agent/status', {credentials:'include'}),
+  getAgentInvestigation: (id: string): Promise<AgentJob> => data(`/api/agent/investigations/${encodeURIComponent(id)}`, {credentials:'include'}),
+  setAgentAutoMode: (enabled: boolean): Promise<AgentStatus> => data('/api/agent/auto-mode', {method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled})}),
+  startAgentInvestigation: (expected_run_id: string, incident_id?: string): Promise<AgentJob> => data('/api/agent/investigate', {method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({expected_run_id,...(incident_id === undefined ? {} : {incident_id})})}),
   async getCurrentUser(): Promise<AuthUser | null> {
     const session = await data<{ authenticated: boolean; user: AuthUser | null }>('/api/auth/me', { credentials: 'include' })
     return session.authenticated ? session.user : null

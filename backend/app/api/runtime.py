@@ -32,6 +32,7 @@ class SimulationRuntime:
         self.task = self.evaluation_task = None
         self.evaluation = {"status": "idle"}
         self.running = self.closed = False
+        self.incident_listener = None
         self.speed = 2.0
         self.error = None
         self._new_run(GridConfig(), 42)
@@ -253,8 +254,11 @@ class SimulationRuntime:
         events = self.sim.events[self._event_index:]
         self._event_index = len(self.sim.events)
         current = {"run_id": self.run_id, "telemetry": row, "anomaly": self.latest_anomaly, "source": self.latest_source}
-        self.store.save_tick(self.run_id, row, self.latest_anomaly, self.latest_source, self._reports(current), events,
+        reports = self._reports(current)
+        self.store.save_tick(self.run_id, row, self.latest_anomaly, self.latest_source, reports, events,
                              status="running" if self.running else "paused", metadata=self.metadata())
+        if self.incident_listener is not None:
+            self.incident_listener(reports)
 
     async def _loop(self):
         try:

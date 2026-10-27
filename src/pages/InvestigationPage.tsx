@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import { ShadowTwinPanel } from '../components/ShadowTwinPanel'
+import { AutonomousAgentPanel } from '../components/AutonomousAgentPanel'
 import { Activity, ArrowRight, Check, CircleHelp, Crosshair, ShieldAlert, Wrench } from 'lucide-react'
 import { DependencyGraph } from '../components/system/DependencyGraph'
 import { Badge, Button, Card, EmptyState } from '../components/ui'
@@ -37,6 +38,7 @@ export function InvestigationPage() {
       {incidents.loading && !incidents.data ? <EmptyState title="Loading incidents" kind="loading" /> : !incidents.error && !incidents.data?.length ? <EmptyState title="No incidents to investigate" detail="The incident endpoint returned no records." kind="unknown" /> : null}
       {selectedIncident && <InvestigationDetail key={String(selectedIncident.id)} incident={selectedIncident} selectedNode={selectedNode} onSelectNode={setSelectedNode} correcting={correcting} setCorrecting={setCorrecting} correctionMessage={correctionMessage} setCorrectionMessage={setCorrectionMessage} actionError={actionError} setActionError={setActionError} onChanged={incidents.reload} onShadowContext={setShadowIncident} />}
       {incidents.data && incidents.data.length > 1 && <div className="incident-switcher"><span>INCIDENT</span>{incidents.data.map((incident) => <button key={incident.id} className={String(incident.id) === String(incidentId) ? 'selected' : ''} onClick={() => { setIncidentId(incident.id); setSelectedNode(null); setCorrectionMessage(null) }}>{incident.title ?? `${incident.source ?? 'Incident'} · ${incident.id}`}</button>)}</div>}
+      <AutonomousAgentPanel system={system} incidentId={selectedIncident?.id} incident={shadowIncident?.id === selectedIncident?.id ? shadowIncident : undefined} />
       <ShadowTwinPanel incidentId={selectedIncident?.id} system={system} incident={shadowIncident?.id === selectedIncident?.id ? shadowIncident : selectedIncident ? {id:selectedIncident.id, title:selectedIncident.title, status:selectedIncident.status, runId:selectedIncident.run_id} : undefined} />
     </>
   )

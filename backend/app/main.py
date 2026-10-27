@@ -15,6 +15,8 @@ from fastapi.responses import JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.auth import router as auth_router
+from app.api.agent import router as agent_router
+from app.investigation_agent.manager import InvestigationManager
 from app.api.config import ServerSettings
 from app.api.runtime import RuntimeConflict, SimulationRuntime
 from app.propagation import build_topology
@@ -29,9 +31,11 @@ def create_app(settings: ServerSettings | None = None):
         runtime = await asyncio.to_thread(SimulationRuntime, settings or ServerSettings.from_environment())
         application.state.runtime = runtime
         application.state.shadowtwin_lock = asyncio.Lock()
+        application.state.agent = InvestigationManager(runtime, application.state.shadowtwin_lock)
         try:
             yield
         finally:
+            await application.state.agent.close()
             await runtime.close()
 
     app = FastAPI(title="Origin", version="0.5.0", lifespan=lifespan,
@@ -41,6 +45,7 @@ def create_app(settings: ServerSettings | None = None):
     app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://127.0.0.1:5175", "http://127.0.0.1:5176"],
                        allow_methods=["GET", "POST"], allow_headers=["Content-Type"], allow_credentials=True)
     app.include_router(auth_router)
+    app.include_router(agent_router)
 
     def runtime(request: Request):
         return request.app.state.runtime
@@ -95,7 +100,7 @@ def create_app(settings: ServerSettings | None = None):
         from app.shadowtwin import Hypothesis, compare_hypotheses
         service = runtime(request)
         gate = request.app.state.shadowtwin_lock
-        if gate.locked():
+        if gate.locked() or request.app.state.agent.busy:
             raise RuntimeConflict("A ShadowTwin analysis is already running; wait before submitting another")
         async with gate:
             try:

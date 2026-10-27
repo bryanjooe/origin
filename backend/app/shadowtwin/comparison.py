@@ -6,7 +6,7 @@ import math
 from app.explainability.evidence import SIGNAL_NODES
 from app.localization.features import LocalizationFeatureExtractor
 from app.propagation.investigation import SECURITY_LAYERS
-from .experiments import Hypothesis, run_experiment
+from .experiments import ExperimentResult, Hypothesis, run_experiment
 from .foundation import MAX_ADVANCE_TICKS, SimulationSnapshot
 
 
@@ -134,6 +134,24 @@ def _recorded_evidence(evidence, start_tick):
 
 
 def compare_hypotheses(snapshot, hypotheses, duration_ticks, observable_evidence=None, *, comparison_id="comparison"):
+    """Execute the existing 2-6 hypothesis batch and compare prospective evidence."""
+    return _compare(snapshot, hypotheses, duration_ticks, observable_evidence, comparison_id=comparison_id)
+
+
+def assess_experiments(snapshot, hypotheses, results, duration_ticks, observable_evidence=None, *, comparison_id="comparison"):
+    """Assess 1-6 existing results using the unchanged comparison semantics.
+
+    This path does not execute experiments. A single result receives measured
+    outcomes but no multi-hypothesis ranking. Callers must retain the supplied
+    snapshot/results together; identity, pairing and matched conditions are checked.
+    """
+    if not isinstance(results, Mapping):
+        raise TypeError("results must map hypothesis IDs to ExperimentResult objects")
+    return _compare(snapshot, hypotheses, duration_ticks, observable_evidence,
+                    comparison_id=comparison_id, completed_results=results)
+
+
+def _compare(snapshot, hypotheses, duration_ticks, observable_evidence=None, *, comparison_id="comparison", completed_results=None):
     """Run a bounded batch from one checkpoint; return JSON-compatible observations.
 
     Pareto comparisons use the SAME residual axes, each normalized only by its
@@ -142,7 +160,7 @@ def compare_hypotheses(snapshot, hypotheses, duration_ticks, observable_evidence
     """
     if not isinstance(snapshot, SimulationSnapshot):
         raise TypeError("snapshot must be a SimulationSnapshot")
-    if not isinstance(hypotheses, Sequence) or not 2 <= len(hypotheses) <= MAX_HYPOTHESES or any(not isinstance(h, Hypothesis) for h in hypotheses):
+    if not isinstance(hypotheses, Sequence) or not (1 if completed_results is not None else 2) <= len(hypotheses) <= MAX_HYPOTHESES or any(not isinstance(h, Hypothesis) for h in hypotheses):
         raise ValueError(f"Supply 2 to {MAX_HYPOTHESES} explicit Hypothesis objects")
     if type(duration_ticks) is not int or not 1 <= duration_ticks <= MAX_ADVANCE_TICKS:
         raise ValueError("Invalid common experiment duration")
@@ -156,6 +174,24 @@ def compare_hypotheses(snapshot, hypotheses, duration_ticks, observable_evidence
         raise ValueError("Hypothesis identifiers must be unique")
     if len({h.checkpoint_id for h in hypotheses}) != 1:
         raise ValueError("All hypothesis checkpoint identifiers must refer to the supplied checkpoint")
+    if completed_results is not None:
+        if set(completed_results) != {h.hypothesis_id for h in hypotheses}:
+            raise ValueError("Cached results must match all supplied hypotheses exactly")
+        for h in hypotheses:
+            r = completed_results[h.hypothesis_id]
+            if (not isinstance(r, ExperimentResult) or r.hypothesis_id != h.hypothesis_id
+                    or r.requested_intervention != h.intervention or r.suspected_component != h.component
+                    or r.checkpoint_id != h.checkpoint_id):
+                raise ValueError("Cached result identity does not match its hypothesis/checkpoint")
+            if (not isinstance(r.control_telemetry, list) or not isinstance(r.experimental_telemetry, list)
+                    or any(not isinstance(row, Mapping) for row in [*r.control_telemetry, *r.experimental_telemetry])
+                    or not isinstance(r.warnings, list) or not isinstance(r.limitations, list)
+                    or any(not isinstance(value, str) for value in [*r.warnings, *r.limitations])
+                    or (r.reason is not None and not isinstance(r.reason, str))):
+                raise ValueError("Invalid cached result observation/limitation structure")
+            if r.status == "completed" and (not isinstance(r.energy, Mapping) or any(
+                    not isinstance(r.energy.get(key), Mapping) for key in ("control", "experimental", "experimental_minus_control"))):
+                raise ValueError("Completed results require the existing energy-ledger record structure")
     evidence = {} if observable_evidence is None else observable_evidence
     if not isinstance(evidence, Mapping):
         raise ValueError("observable_evidence must be an incident-evidence mapping")
@@ -178,8 +214,9 @@ def compare_hypotheses(snapshot, hypotheses, duration_ticks, observable_evidence
             "explanation": "", "warnings": [], "experiment": None}
         items.append(item)
         try:
-            experiment = run_experiment(snapshot, replace(hypothesis, duration_ticks=duration_ticks),
-                                        experiment_id=f"{comparison_id}:{hypothesis.hypothesis_id}")
+            experiment = (completed_results[hypothesis.hypothesis_id] if completed_results is not None else
+                          run_experiment(snapshot, replace(hypothesis, duration_ticks=duration_ticks),
+                                         experiment_id=f"{comparison_id}:{hypothesis.hypothesis_id}"))
         except Exception as error:
             item.update(experiment_status="invalid" if isinstance(error, (ValueError, TypeError)) else "failed",
                         exclusion_reason=f"Experiment could not run ({type(error).__name__}).")
